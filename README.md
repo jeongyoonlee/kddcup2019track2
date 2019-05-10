@@ -9,7 +9,7 @@
 ## Submission Account at Codalab
 
 * https://competitions.codalab.org/competitions/21948
-* username: jeongyoonlee
+* username: AvengersEnsmbl
 * password: KDDCup2019Winners
 
 ## Team **AvengersEnsmbl**
