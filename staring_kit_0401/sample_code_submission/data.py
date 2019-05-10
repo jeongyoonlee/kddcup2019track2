@@ -2,10 +2,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 from scipy import sparse
-from scipy.signal import butter, lfilter
-from scipy.stats import norm
 from sklearn import base
-from statsmodels.distributions.empirical_distribution import ECDF
 import logging
 import numpy as np
 import pandas as pd
@@ -13,68 +10,6 @@ import pandas as pd
 
 NAN_INT = 7535805
 logger = logging.getLogger('Kaggler')
-
-
-class Normalizer(base.BaseEstimator):
-    """Normalizer that transforms numerical columns into normal distribution.
-
-    Attributes:
-        ecdfs (list of empirical CDF): empirical CDFs for columns
-    """
-
-    def fit(self, X, y=None):
-        self.ecdfs = [None] * X.shape[1]
-
-        for col in range(X.shape[1]):
-            self.ecdfs[col] = ECDF(X[:, col])
-
-        return self
-
-    def transform(self, X):
-        """Normalize numerical columns.
-
-        Args:
-            X (numpy.array) : numerical columns to normalize
-
-        Returns:
-            X (numpy.array): normalized numerical columns
-        """
-
-        for col in range(X.shape[1]):
-            X[:, col] = self._transform_col(X[:, col], col)
-
-        return X
-
-    def fit_transform(self, X, y=None):
-        """Normalize numerical columns.
-
-        Args:
-            X (numpy.array) : numerical columns to normalize
-
-        Returns:
-            X (numpy.array): normalized numerical columns
-        """
-
-        self.ecdfs = [None] * X.shape[1]
-
-        for col in range(X.shape[1]):
-            self.ecdfs[col] = ECDF(X[:, col])
-            X[:, col] = self._transform_col(X[:, col], col)
-
-        return X
-
-    def _transform_col(self, x, col):
-        """Normalize one numerical column.
-
-        Args:
-            x (numpy.array): a numerical column to normalize
-            col (int): column index
-
-        Returns:
-            A normalized feature vector.
-        """
-
-        return norm.ppf(self.ecdfs[col](x) * .998 + .001)
 
 
 class LabelEncoder(base.BaseEstimator):
@@ -364,35 +299,5 @@ class TargetEncoder(base.BaseEstimator):
             self.target_encoders[i] = self._get_target_encoder(X[col], y)
 
             X.loc[:, col] = X[col].fillna(NAN_INT).map(self.target_encoders[i]).fillna(self.target_mean)
-
-        return X
-
-
-class BandpassFilter(base.BaseEstimator):
-
-    def __init__(self, fs=10., lowcut=.5, highcut=3., order=3):
-        self.fs = 10.
-        self.lowcut = .5
-        self.highcut = 3.
-        self.order = 3
-        self.b, self.a = self._butter_bandpass()
-
-    def _butter_bandpass(self):
-        nyq = .5 * self.fs
-        low = self.lowcut / nyq
-        high = self.highcut / nyq
-        b, a = butter(self.order, [low, high], btype='band')
-
-        return b, a
-
-    def _butter_bandpass_filter(self, x):
-        return lfilter(self.b, self.a, x)
-
-    def fit(self, X):
-        return self
-
-    def transform(self, X, y=None):
-        for col in range(X.shape[1]):
-            X[:, col] = self._butter_bandpass_filter(X[:, col])
 
         return X
