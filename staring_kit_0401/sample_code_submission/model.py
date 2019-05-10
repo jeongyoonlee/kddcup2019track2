@@ -3,15 +3,14 @@ import os
 os.system("pip3 install hyperopt")
 os.system("pip3 install lightgbm")
 os.system("pip3 install pandas==0.24.2")
-os.system("pip3 install kaggler")
 
 import copy
 import numpy as np
 import pandas as pd
-from kaggler.preprocessing import LabelEncoder
+from data import LabelEncoder
 
 from automl import predict, train, validate
-from CONSTANT import MAIN_TABLE_NAME
+from CONSTANT import MAIN_TABLE_NAME, CATEGORY_PREFIX, MULTI_CAT_PREFIX, NUMERICAL_PREFIX, TIME_PREFIX
 from merge import merge_table
 from preprocess import clean_df, clean_tables, feature_engineer
 from util import Config, log, show_dataframe, timeit
@@ -35,10 +34,10 @@ class Model:
         X = merge_table(Xs, self.config)
         clean_df(X)
 
-        self.cat_cols = [c for c in X.columns if c.startswith(CONSTANT.CATEGORY_PREFIX)]
-        self.mcat_cols = [c for c in X.columns if c.startswith(CONSTANT.MULTI_CAT_PREFIX)]
-        self.num_cols = [c for c in X.columns if c.startswith(CONSTANT.NUMERICAL_PREFIX)]
-        self.ts_cols = [c for c in X.columns if c.startswith(CONSTANT.TIME_PREFIX)]
+        self.cat_cols = [c for c in X.columns if c.startswith(CATEGORY_PREFIX) or X[c].dtype == np.object]
+        self.mcat_cols = [c for c in X.columns if c.startswith(MULTI_CAT_PREFIX)]
+        self.num_cols = [c for c in X.columns if c.startswith(NUMERICAL_PREFIX)]
+        self.ts_cols = [c for c in X.columns if c.startswith(TIME_PREFIX)]
 
         self.enc = LabelEncoder(min_obs=X.shape[0] * .0001)
         X.loc[:, self.cat_cols] = self.enc.fit_transform(X[self.cat_cols])
