@@ -1,75 +1,33 @@
-This is an example KDDCup2019 starting kit
-==========================================
+# INFORMATION
 
-ALL INFORMATION, SOFTWARE, DOCUMENTATION, AND DATA ARE PROVIDED "AS-IS".
-4PARADIGM, CHALEARN, AND/OR OTHER ORGANIZERS
-OR CODE AUTHORS DISCLAIM ANY EXPRESSED OR IMPLIED WARRANTIES.
+## Competition
 
-Contents:
----------
+* Introduction and rules: [4Paradigm](https://www.4paradigm.com/competition/kddcup2019)
+* Submission and leaderboard: [Codalab](https://competitions.codalab.org/competitions/21948)
+* Team AvengersEnsmbl slack channel: [Invite link](https://join.slack.com/t/avengersensmbl/shared_invite/enQtNjI1NDE2NjIyMzEwLTNlOTYyY2QzMzdjOTg5NTg3NDcxZmQ0ZTgxODljOGZhYjY0OWFjYzFmNTExNzMwYzBkZmZmNzNhYmM3NDI5NzU)
 
-ingestion_program/: The code and libraries used on Codalab to run your submmission.
-scoring_program/: The code and libraries used on Codalab to score your submmission.
-sample_code_submission/: An example of code submission you can use as template.
-sample_data/: Some sample data to test your code before you submit it.
-sample_ref/: Reference data required to evaluate your submission.
+## Members
 
-Make the submmission:
----------------------
+* Bang Ly Tieu
+* Tam T. Nguyen
+* Tina Nikou
+* Yang Cao
+* Mike Yung
+* Yifeng Wu
+* Jing Pan
+* Jeong-Yoon Lee
 
-To make your own submission, follow the instructions:
-1. modify sample_code_submission/ to your code (**you should keep metadata file unchanged in sample_code_submission/**)
-2. Zip the contents of sample_code_submission (without the directory structure)
-```
-zip mysubmission.zip sample_code_submission/*
-```
-3. submit to Codalab competition "Participate>Submit/View results".
+# REFERENCES
 
+## AutoML Competition Results
 
-Local development and testing:
-------------------------------
+* AutoML4 @ PAKDD 2019: [DeepBlueAI (1st)](https://docs.google.com/viewer?a=v&pid=sites&srcid=Y2hhbGVhcm4ub3JnfGF1dG9tbHxneDoxYWNhMDllOTU1Y2U5YWIy), [ML Intelligence (2nd)](https://docs.google.com/viewer?a=v&pid=sites&srcid=Y2hhbGVhcm4ub3JnfGF1dG9tbHxneDoxYjZhZDg4NmZhNmRmNjgw), [Meta_Learner (3rd)](https://docs.google.com/viewer?a=v&pid=sites&srcid=Y2hhbGVhcm4ub3JnfGF1dG9tbHxneDo3YzRiNzgwZWFmYzgwZjBm)
+* AutoML3 @ NeurIPS 2018: [AutoGBT (1st)](https://ccc.inaoep.mx/~hugojair/imgs/Autodidact_ai_team_video.mp4), [Meta_Learner (2nd)](https://docs.google.com/viewer?a=v&pid=sites&srcid=Y2hhbGVhcm4ub3JnfGF1dG9tbHxneDo3YjhhMGFiZjc3ZGNjYTU), [GrandMasters](https://docs.google.com/viewer?a=v&pid=sites&srcid=Y2hhbGVhcm4ub3JnfGF1dG9tbHxneDozMTUzN2JjY2NmMDA5OTQ)
+* [AutoML2 @ PAKDD 2018](https://www.4paradigm.com/competition/pakdd2018)
+* [AutoML1](https://competitions.codalab.org/competitions/2321)
 
-You can test your code in the exact same environment as the Codalab environment using docker.
-You are able to run the ingestion program (to produce predictions) and the scoring program
-(to evaluate your predictions) on toy sample data.
+## Tutorials
 
-Quick Start
------------
+* [Automated Machine Learning Tutorial](https://www.automl.org/wp-content/uploads/2018/12/AutoML-Tutorial-NeurIPS2018-HPO_and_NAS.pdf) @ NeurIPS 2018
+* [Learning to Learn Tutorial](https://www.automl.org/wp-content/uploads/2018/12/AutoML-Tutorial-NeurIPS2018-MetaLearning.pdf) @ NeurIPS 2018
 
-1. If you are new to docker, install docker from https://docs.docker.com/get-started/.
-2. At the shell, change to the startingkit directory, run
-
-```
-docker run -it --rm -u root -v $(pwd):/app/kddcup codalab/codalab-legacy:py3 bash
-```
-
-3. Now your are in the bash of the docker container, run ingestion program
-
-```
-cd /app/kddcup
-python3 ingestion_program/ingestion.py
-```
-It runs sample_code_submission and the predictions will be in sample_predictions directory
-
-4. Now run scoring program:
-
-```
-python3 scoring_program/score.py
-```
-
-It will score the predictions and the results will be in sample_scoring_output directory
-
-### Remark
-
-- you can put public data in sample_data and test it
-- The full call of the ingestion program is:
-
-```
-python3 ingestion_program/ingestion.py local sample_data sample_predictions ingestion_program sample_code_submission
-```
-
-- The full call of the scoring program is:
-
-```
-python3 scoring_program/score.py local sample_predictions sample_ref sample_scoring_output
-```
