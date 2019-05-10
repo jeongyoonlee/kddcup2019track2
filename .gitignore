@@ -104,3 +104,7 @@ venv.bak/
 .mypy_cache/
 .vscode/
 data
+*.zip
+sample_predictions/
+sample_scoring_output/
+.DS_Store

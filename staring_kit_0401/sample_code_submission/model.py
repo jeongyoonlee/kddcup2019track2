@@ -3,10 +3,12 @@ import os
 os.system("pip3 install hyperopt")
 os.system("pip3 install lightgbm")
 os.system("pip3 install pandas==0.24.2")
+os.system("pip3 install kaggler")
 
 import copy
 import numpy as np
 import pandas as pd
+from kaggler.preprocessing import LabelEncoder
 
 from automl import predict, train, validate
 from CONSTANT import MAIN_TABLE_NAME
@@ -19,6 +21,11 @@ class Model:
     def __init__(self, info):
         self.config = Config(info)
         self.tables = None
+        self.enc = None
+        self.cat_cols = []
+        self.mcat_cols = []
+        self.num_cols = []
+        self.ts_cols = []
 
     @timeit
     def fit(self, Xs, y, time_ramain):
@@ -27,7 +34,17 @@ class Model:
         clean_tables(Xs)
         X = merge_table(Xs, self.config)
         clean_df(X)
-        feature_engineer(X, self.config)
+
+        self.cat_cols = [c for c in X.columns if c.startswith(CONSTANT.CATEGORY_PREFIX)]
+        self.mcat_cols = [c for c in X.columns if c.startswith(CONSTANT.MULTI_CAT_PREFIX)]
+        self.num_cols = [c for c in X.columns if c.startswith(CONSTANT.NUMERICAL_PREFIX)]
+        self.ts_cols = [c for c in X.columns if c.startswith(CONSTANT.TIME_PREFIX)]
+
+        self.enc = LabelEncoder(min_obs=X.shape[0] * .0001)
+        X.loc[:, self.cat_cols] = self.enc.fit_transform(X[self.cat_cols])
+        X.drop(self.ts_cols, axis=1, inplace=True)
+
+        #feature_engineer(X, self.config)
         train(X, y, self.config)
 
     @timeit
@@ -42,7 +59,11 @@ class Model:
         clean_tables(Xs)
         X = merge_table(Xs, self.config)
         clean_df(X)
-        feature_engineer(X, self.config)
+
+        X.loc[:, self.cat_cols] = self.enc.transform(X[self.cat_cols])
+        X.drop(self.ts_cols, axis=1, inplace=True)
+
+        #feature_engineer(X, self.config)
         X = X[X.index.str.startswith("test")]
         X.index = X.index.map(lambda x: int(x.split('_')[1]))
         X.sort_index(inplace=True)
