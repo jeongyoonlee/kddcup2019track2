@@ -6,7 +6,7 @@
 * Submission and leaderboard: [Codalab](https://competitions.codalab.org/competitions/21948)
 * Team AvengersEnsmbl slack channel: [Invite link](https://join.slack.com/t/avengersensmbl/shared_invite/enQtNjI1NDE2NjIyMzEwLTNlOTYyY2QzMzdjOTg5NTg3NDcxZmQ0ZTgxODljOGZhYjY0OWFjYzFmNTExNzMwYzBkZmZmNzNhYmM3NDI5NzU)
 
-## Members
+## Team **AvengersEnsmbl**
 
 * Bang Ly Tieu
 * Tam T. Nguyen
