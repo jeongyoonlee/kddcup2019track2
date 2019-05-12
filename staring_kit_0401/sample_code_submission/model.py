@@ -53,7 +53,7 @@ class Model:
         X.loc[:, self.cat_cols] = self.enc.fit_transform(X[self.cat_cols])
 
         #feature_engineer(X, self.config)
-        train(X, X.y_sorted, self.config)
+        train(X, y, self.config)
 
     @timeit
     def predict(self, X_test, time_remain):
