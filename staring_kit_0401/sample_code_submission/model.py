@@ -39,7 +39,7 @@ class Model:
         self.num_cols = sorted([c for c in X.columns if c.startswith(NUMERICAL_PREFIX)])
         self.ts_cols = sorted([c for c in X.columns if c.startswith(TIME_PREFIX)])
 
-        X.sort_values(ts_cols, inplace=True)
+        X.sort_values(self.ts_cols, inplace=True)
 
         self.enc = LabelEncoder(min_obs=X.shape[0] * .0001)
         X.loc[:, self.cat_cols] = self.enc.fit_transform(X[self.cat_cols])
