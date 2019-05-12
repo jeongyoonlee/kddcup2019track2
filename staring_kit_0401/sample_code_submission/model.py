@@ -5,6 +5,7 @@ os.system("pip3 install lightgbm")
 os.system("pip3 install pandas==0.24.2")
 
 import copy
+import logging
 import numpy as np
 import pandas as pd
 from data import LabelEncoder
@@ -14,6 +15,9 @@ from CONSTANT import MAIN_TABLE_NAME, CATEGORY_PREFIX, MULTI_CAT_PREFIX, NUMERIC
 from merge import merge_table
 from preprocess import clean_df, clean_tables, feature_engineer
 from util import Config, log, show_dataframe, timeit
+
+
+logger = logging.getLogger('AvengersEnsmbl')
 
 
 class Model:
@@ -39,6 +43,8 @@ class Model:
         self.num_cols = sorted([c for c in X.columns if c.startswith(NUMERICAL_PREFIX)])
         self.ts_cols = sorted([c for c in X.columns if c.startswith(TIME_PREFIX)])
 
+        logger.info('sorting the training data by timeseries columns: {}'.format(self.ts_cols))
+        X['y_sorted'] = y
         X.sort_values(self.ts_cols, inplace=True)
 
         self.enc = LabelEncoder(min_obs=X.shape[0] * .0001)
@@ -46,7 +52,7 @@ class Model:
         X.drop(self.ts_cols, axis=1, inplace=True)
 
         #feature_engineer(X, self.config)
-        train(X, y, self.config)
+        train(X, X.y_sorted, self.config)
 
     @timeit
     def predict(self, X_test, time_remain):
