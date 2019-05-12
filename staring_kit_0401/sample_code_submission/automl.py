@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 from hyperopt import STATUS_OK, Trials, hp, space_eval, tpe
 from sklearn.metrics import roc_auc_score
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, TimeSeriesSplit
 
 from util import Config, log, timeit
 
@@ -42,7 +42,7 @@ def train_lightgbm(X: pd.DataFrame, y: pd.Series, config: Config):
     X_sample, y_sample = data_sample(X, y, 30000)
     hyperparams = hyperopt_lightgbm(X_sample, y_sample, params, config)
 
-    X_train, X_val, y_train, y_val = data_split(X, y, 0.1)
+    X_train, X_val, y_train, y_val = ts_data_split(X, y, 0.1)
     train_data = lgb.Dataset(X_train, label=y_train)
     valid_data = lgb.Dataset(X_val, label=y_val)
 
@@ -61,7 +61,7 @@ def predict_lightgbm(X: pd.DataFrame, config: Config) -> List:
 
 @timeit
 def hyperopt_lightgbm(X: pd.DataFrame, y: pd.Series, params: Dict, config: Config):
-    X_train, X_val, y_train, y_val = data_split(X, y, test_size=0.5)
+    X_train, X_val, y_train, y_val = ts_data_split(X, y, test_size=0.5)
     train_data = lgb.Dataset(X_train, label=y_train)
     valid_data = lgb.Dataset(X_val, label=y_val)
 
@@ -94,6 +94,12 @@ def hyperopt_lightgbm(X: pd.DataFrame, y: pd.Series, params: Dict, config: Confi
     hyperparams = space_eval(space, best)
     log(f"auc = {-trials.best_trial['result']['loss']:0.4f} {hyperparams}")
     return hyperparams
+
+
+def ts_data_split(X: pd.DataFrame, y: pd.Series, ts_col: str='t_01', test_size: float=0.2):
+    #  -> (pd.DataFrame, pd.Series, pd.DataFrame, pd.Series):
+    X_sorted = X.sort_value(ts_col)
+    return train_test_split(X_sorted, y, test_size=test_size, shuffle=False)
 
 
 def data_split(X: pd.DataFrame, y: pd.Series, test_size: float=0.2):
