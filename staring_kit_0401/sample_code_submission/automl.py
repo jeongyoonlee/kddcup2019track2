@@ -40,10 +40,11 @@ def train_lightgbm(X: pd.DataFrame, y: pd.Series, config: Config):
         "num_threads": 4
     }
 
-    X_sample, y_sample = data_sample(X, y, 30000)
+    X_train, X_val, y_train, y_val = ts_data_split(X, y, 0.15)
+
+    X_sample, y_sample = ts_data_sample(X_train, y_train, 30000)
     hyperparams = hyperopt_lightgbm(X_sample, y_sample, params, config)
 
-    X_train, X_val, y_train, y_val = data_split(X, y, 0.1)
     train_data = lgb.Dataset(X_train, label=y_train)
     valid_data = lgb.Dataset(X_val, label=y_val)
 
@@ -72,7 +73,7 @@ def predict_lightgbm(X: pd.DataFrame, config: Config) -> List:
 
 @timeit
 def hyperopt_lightgbm(X: pd.DataFrame, y: pd.Series, params: Dict, config: Config):
-    X_train, X_val, y_train, y_val = data_split(X, y, test_size=0.5)
+    X_train, X_val, y_train, y_val = ts_data_split(X, y, test_size=0.5)
     train_data = lgb.Dataset(X_train, label=y_train)
     valid_data = lgb.Dataset(X_val, label=y_val)
 
@@ -103,9 +104,26 @@ def hyperopt_lightgbm(X: pd.DataFrame, y: pd.Series, params: Dict, config: Confi
     return hyperparams
 
 
+def ts_data_split(X: pd.DataFrame, y: pd.Series, test_size: float=0.2):
+    #  -> (pd.DataFrame, pd.Series, pd.DataFrame, pd.Series):
+    return train_test_split(X, y, test_size=test_size, shuffle=False)
+
+
 def data_split(X: pd.DataFrame, y: pd.Series, test_size: float=0.2):
     #  -> (pd.DataFrame, pd.Series, pd.DataFrame, pd.Series):
     return train_test_split(X, y, test_size=test_size, random_state=1)
+
+
+def ts_data_sample(X: pd.DataFrame, y: pd.Series, nrows: int=5000):
+    # -> (pd.DataFrame, pd.Series):
+    if len(X) > nrows:
+        X_sample = X.iloc[-nrows:]
+        y_sample = y[X_sample.index]
+    else:
+        X_sample = X
+        y_sample = y
+
+    return X_sample, y_sample
 
 
 def data_sample(X: pd.DataFrame, y: pd.Series, nrows: int=5000):
