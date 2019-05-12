@@ -98,7 +98,7 @@ def hyperopt_lightgbm(X: pd.DataFrame, y: pd.Series, params: Dict, config: Confi
 
 def ts_data_split(X: pd.DataFrame, y: pd.Series, ts_col: str='t_01', test_size: float=0.2):
     #  -> (pd.DataFrame, pd.Series, pd.DataFrame, pd.Series):
-    X_sorted = X.sort_value(ts_col)
+    X_sorted = X.sort_values(ts_col)
     return train_test_split(X_sorted, y, test_size=test_size, shuffle=False)
 
 
