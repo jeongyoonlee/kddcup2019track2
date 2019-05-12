@@ -47,7 +47,7 @@ class Model:
         X['y_sorted'] = y
         X.sort_values(self.ts_cols, inplace=True)
         y = X.y_sorted.copy()
-        X.drop(['y_sorted'] + ts_cols, axis=1, inplace=True)
+        X.drop(['y_sorted'] + self.ts_cols, axis=1, inplace=True)
 
         self.enc = LabelEncoder(min_obs=X.shape[0] * .0001)
         X.loc[:, self.cat_cols] = self.enc.fit_transform(X[self.cat_cols])
