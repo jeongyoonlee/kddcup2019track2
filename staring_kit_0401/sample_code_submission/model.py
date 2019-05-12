@@ -17,9 +17,6 @@ from preprocess import clean_df, clean_tables, feature_engineer
 from util import Config, log, show_dataframe, timeit
 
 
-logger = logging.getLogger('AvengersEnsmbl')
-
-
 class Model:
     def __init__(self, info):
         self.config = Config(info)
@@ -43,7 +40,7 @@ class Model:
         self.num_cols = sorted([c for c in X.columns if c.startswith(NUMERICAL_PREFIX)])
         self.ts_cols = sorted([c for c in X.columns if c.startswith(TIME_PREFIX)])
 
-        logger.info('sorting the training data by timeseries columns: {}'.format(self.ts_cols))
+        log('sorting the training data by timeseries columns: {}'.format(self.ts_cols))
         X['y_sorted'] = y
         X.sort_values(self.ts_cols, inplace=True)
         y = X.y_sorted.copy()

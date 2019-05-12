@@ -34,6 +34,7 @@ def train_lightgbm(X: pd.DataFrame, y: pd.Series, config: Config):
     params = {
         "objective": "binary",
         "metric": "auc",
+        "bagging_freq": 1,
         "verbosity": -1,
         "seed": 1,
         "num_threads": 4
@@ -48,9 +49,19 @@ def train_lightgbm(X: pd.DataFrame, y: pd.Series, config: Config):
 
     config["model"] = lgb.train({**params, **hyperparams},
                                 train_data,
-                                500,
+                                1000,
                                 valid_data,
-                                early_stopping_rounds=30,
+                                early_stopping_rounds=10,
+                                verbose_eval=100)
+
+    n_best = config["model"].best_iteration
+    log("best iteration: {}".format(n_best))
+
+    log('training with 100% training data')
+    train_data = lgb.Dataset(X, label=y)
+    config["model"] = lgb.train({**params, **hyperparams},
+                                train_data,
+                                n_best,
                                 verbose_eval=100)
 
 
@@ -66,15 +77,11 @@ def hyperopt_lightgbm(X: pd.DataFrame, y: pd.Series, params: Dict, config: Confi
     valid_data = lgb.Dataset(X_val, label=y_val)
 
     space = {
-        "learning_rate": hp.loguniform("learning_rate", np.log(0.01), np.log(0.5)),
-        "max_depth": hp.choice("max_depth", [-1, 2, 3, 4, 5, 6]),
-        "num_leaves": hp.choice("num_leaves", np.linspace(10, 200, 50, dtype=int)),
-        "feature_fraction": hp.quniform("feature_fraction", 0.5, 1.0, 0.1),
-        "bagging_fraction": hp.quniform("bagging_fraction", 0.5, 1.0, 0.1),
-        "bagging_freq": hp.choice("bagging_freq", np.linspace(0, 50, 10, dtype=int)),
-        "reg_alpha": hp.uniform("reg_alpha", 0, 2),
-        "reg_lambda": hp.uniform("reg_lambda", 0, 2),
-        "min_child_weight": hp.uniform('min_child_weight', 0.5, 10),
+        "learning_rate": hp.loguniform("learning_rate", np.log(0.02), np.log(0.1)),
+        "num_leaves": hp.choice("num_leaves", [31, 63, 127]),
+        "feature_fraction": hp.quniform("feature_fraction", .5, .8, 0.1),
+        "bagging_fraction": hp.quniform("bagging_fraction", .5, .8, 0.1),
+        "min_child_samples": hp.choice('min_child_samples', [10, 25, 100]),
     }
 
     def objective(hyperparams):
