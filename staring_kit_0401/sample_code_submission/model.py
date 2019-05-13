@@ -26,6 +26,7 @@ class Model:
         self.mcat_cols = []
         self.num_cols = []
         self.ts_cols = []
+        self.ts_col = self.config['time_col']
 
     @timeit
     def fit(self, Xs, y, time_ramain):
@@ -40,9 +41,9 @@ class Model:
         self.num_cols = sorted([c for c in X.columns if c.startswith(NUMERICAL_PREFIX)])
         self.ts_cols = sorted([c for c in X.columns if c.startswith(TIME_PREFIX)])
 
-        log('sorting the training data by timeseries columns: {}'.format(self.ts_cols))
+        log('sorting the training data by the main timeseries column: {}'.format(self.ts_col))
         X['y_sorted'] = y
-        X.sort_values(self.ts_cols, inplace=True)
+        X.sort_values(self.ts_col, inplace=True)
         y = X.y_sorted.copy()
         X.drop(['y_sorted'] + self.ts_cols, axis=1, inplace=True)
 
