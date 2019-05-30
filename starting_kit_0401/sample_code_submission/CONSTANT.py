@@ -20,3 +20,5 @@ TABLE_PREFIX = "table_"
 LABEL = "label"
 
 HASH_MAX = 200
+
+NUM_CAT_THRESHOLD = 100

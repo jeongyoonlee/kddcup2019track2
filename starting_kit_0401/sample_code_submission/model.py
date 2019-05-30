@@ -12,7 +12,7 @@ from data import LabelEncoder
 from sklearn.feature_extraction.text import CountVectorizer
 
 from automl import predict, train, validate
-from CONSTANT import MAIN_TABLE_NAME, CATEGORY_PREFIX, MULTI_CAT_PREFIX, NUMERICAL_PREFIX, TIME_PREFIX
+from CONSTANT import MAIN_TABLE_NAME, CATEGORY_PREFIX, MULTI_CAT_PREFIX, NUMERICAL_PREFIX, TIME_PREFIX, NUM_CAT_THRESHOLD
 from merge import merge_table
 from preprocess import clean_df, clean_tables
 from util import Config, log, show_dataframe, timeit
@@ -46,11 +46,12 @@ class Model:
         log('sorting the training data by the main timeseries column: {}'.format(self.ts_col))
         X['y_sorted'] = y
         X.sort_values(self.ts_col, inplace=True)
-        y = X.y_sorted.copy()
+
+        self.y = X.y_sorted.copy()
         X.drop('y_sorted', axis=1, inplace=True)
 
-        X = self.feature_engineer(X, train=True)
-        train(X, y, self.config)
+        #X = self.feature_engineer(X, train=True)
+        #train(X, y, self.config)
 
     @timeit
     def feature_engineer(self, X, y=None, train=True):
@@ -70,12 +71,12 @@ class Model:
         for c in self.cat_cols:
             if train:
                 self.count_dict[c] = X[c].value_counts() #.to_frame(name='%s_count' % c.split('.')[-1]).reset_index().rename(columns={'index': c})
-
             if (c in self.count_dict):
                 X.loc[:, '%s_count' % c] = X[c].map(lambda x: self.count_dict[c][x] if x in self.count_dict[c] else 0)
                 #X = X.merge(self.count_dict[c], how='left', on=c)
 
         # Generate count features fro multi-categorical columns
+        '''
         for c in self.mcat_cols:
             if train:
                 self.count_dict[c] = X[c].value_counts() #.to_frame(name='%s_count' % c.split('.')[-1]).reset_index().rename(columns={'index': c})
@@ -83,11 +84,19 @@ class Model:
             if (c in self.count_dict):
                 X.loc[:, '%s_count' % c] = X[c].map(lambda x: self.count_dict[c][x] if x in self.count_dict[c] else 0)
                 #X = X.merge(self.count_dict[c], how='left', on=c)
-
+        '''
         # Use the count of categories for each observation
         for col in self.mcat_cols:
             X.loc[:, col] = X[col].apply(lambda x: len(x.split(',')) if pd.notnull(x) else 0)
+        '''
+        for c in self.num_cols:
+            if X[c].nunique() <= NUM_CAT_THRESHOLD:
+                if train:
+                    self.count_dict[c] = X[c].value_counts() 
 
+                if (c in self.count_dict):
+                    X.loc[:, '%s_count' % c] = X[c].map(lambda x: self.count_dict[c][x] if x in self.count_dict[c] else 0)
+        '''
         return X
 
     @timeit
@@ -103,10 +112,16 @@ class Model:
         X = merge_table(Xs, self.config)
         clean_df(X)
 
-        X = self.feature_engineer(X, train=False)
-        X = X[X.index.str.startswith("test")]
-        X.index = X.index.map(lambda x: int(x.split('_')[1]))
-        X.sort_index(inplace=True)
-        result = predict(X, self.config)
+        X = self.feature_engineer(X, train=True)
+        
+        X_trn = X[X.index.str.startswith("train")]
+        X_trn.index = X_trn.index.map(lambda x: int(x.split('_')[1]))
+        X_trn.sort_index(inplace=True)
+        train(X_trn, self.y, self.config)
+
+        X_tst = X[X.index.str.startswith("test")]
+        X_tst.index = X_tst.index.map(lambda x: int(x.split('_')[1]))
+        X_tst.sort_index(inplace=True)
+        result = predict(X_tst, self.config)
 
         return pd.Series(result)
