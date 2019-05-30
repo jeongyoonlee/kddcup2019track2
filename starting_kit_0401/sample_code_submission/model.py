@@ -4,7 +4,9 @@ os.system("pip3 install hyperopt")
 os.system("pip3 install lightgbm")
 os.system("pip3 install pandas==0.24.2")
 
+from itertools import product
 import copy
+import random
 import logging
 import numpy as np
 import pandas as pd
@@ -12,11 +14,16 @@ from data import LabelEncoder
 from sklearn.feature_extraction.text import CountVectorizer
 
 from automl import predict, train, validate
-from CONSTANT import MAIN_TABLE_NAME, CATEGORY_PREFIX, MULTI_CAT_PREFIX, NUMERICAL_PREFIX, TIME_PREFIX, NUM_CAT_THRESHOLD
+from CONSTANT import MAIN_TABLE_NAME, CATEGORY_PREFIX, MULTI_CAT_PREFIX, NUMERICAL_PREFIX, TIME_PREFIX, AGG_FEAT_MAX
 from merge import merge_table
 from preprocess import clean_df, clean_tables
 from util import Config, log, show_dataframe, timeit
 
+random.seed(1)
+
+def random_product(l1, l2, n_items=AGG_FEAT_MAX):
+    the_list = list(product(l1,l2))
+    return random.sample(the_list, 5)
 
 class Model:
     def __init__(self, info):
@@ -70,33 +77,41 @@ class Model:
         # Generate count features fro categorical columns
         for c in self.cat_cols:
             if train:
-                self.count_dict[c] = X[c].value_counts() #.to_frame(name='%s_count' % c.split('.')[-1]).reset_index().rename(columns={'index': c})
+                self.count_dict[c] = X[c].value_counts().to_frame(name='%s_count' % c.split('.')[-1]).reset_index().rename(columns={'index': c})
             if (c in self.count_dict):
-                X.loc[:, '%s_count' % c] = X[c].map(lambda x: self.count_dict[c][x] if x in self.count_dict[c] else 0)
-                #X = X.merge(self.count_dict[c], how='left', on=c)
+                X = X.reset_index().merge(self.count_dict[c], how='left', on=c).set_index('index')
 
         # Generate count features fro multi-categorical columns
         '''
         for c in self.mcat_cols:
             if train:
-                self.count_dict[c] = X[c].value_counts() #.to_frame(name='%s_count' % c.split('.')[-1]).reset_index().rename(columns={'index': c})
+                self.count_dict[c] = X[c].value_counts().to_frame(name='%s_count' % c.split('.')[-1]).reset_index().rename(columns={'index': c})
 
             if (c in self.count_dict):
-                X.loc[:, '%s_count' % c] = X[c].map(lambda x: self.count_dict[c][x] if x in self.count_dict[c] else 0)
-                #X = X.merge(self.count_dict[c], how='left', on=c)
+                X = X.reset_index().merge(self.count_dict[c], how='left', on=c).set_index('index')
         '''
         # Use the count of categories for each observation
         for col in self.mcat_cols:
             X.loc[:, col] = X[col].apply(lambda x: len(x.split(',')) if pd.notnull(x) else 0)
+        
         '''
         for c in self.num_cols:
             if X[c].nunique() <= NUM_CAT_THRESHOLD:
                 if train:
-                    self.count_dict[c] = X[c].value_counts() 
+                    self.count_dict[c] = X[c].value_counts().to_frame(name='%s_count' % c.split('.')[-1]).reset_index().rename(columns={'index': c})
 
                 if (c in self.count_dict):
-                    X.loc[:, '%s_count' % c] = X[c].map(lambda x: self.count_dict[c][x] if x in self.count_dict[c] else 0)
+                    X = X.reset_index().merge(self.count_dict[c], how='left', on=c).set_index('index')
         '''
+        cat_num_cols = random_product(self.cat_cols, self.num_cols)
+        for cat_col, num_col in cat_num_cols:
+            agg_feat = X.groupby(cat_col, as_index=False)[num_col].agg({'%s_%s_min' % (cat_col, num_col): 'min',
+                                                                        '%s_%s_mean' % (cat_col, num_col): 'mean', 
+                                                                        '%s_%s_max' % (cat_col, num_col): 'max',
+                                                                        })
+
+            X = X.reset_index().merge(agg_feat, how='left', on=cat_col).set_index('index')
+
         return X
 
     @timeit

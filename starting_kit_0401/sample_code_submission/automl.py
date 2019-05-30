@@ -78,7 +78,7 @@ def hyperopt_lightgbm(X: pd.DataFrame, y: pd.Series, params: Dict, config: Confi
     valid_data = lgb.Dataset(X_val, label=y_val)
 
     space = {
-        "learning_rate": 0.15, #hp.loguniform("learning_rate", np.log(0.02), np.log(0.1)),
+        "learning_rate": hp.loguniform("learning_rate", np.log(0.02), np.log(0.1)),
         "num_leaves": hp.choice("num_leaves", [31, 63, 127]),
         "feature_fraction": hp.quniform("feature_fraction", .5, .8, 0.1),
         "bagging_fraction": hp.quniform("bagging_fraction", .5, .8, 0.1),
