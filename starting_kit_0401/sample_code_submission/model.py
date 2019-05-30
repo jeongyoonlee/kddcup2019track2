@@ -9,6 +9,7 @@ import logging
 import numpy as np
 import pandas as pd
 from data import LabelEncoder
+from sklearn.feature_extraction.text import CountVectorizer
 
 from automl import predict, train, validate
 from CONSTANT import MAIN_TABLE_NAME, CATEGORY_PREFIX, MULTI_CAT_PREFIX, NUMERICAL_PREFIX, TIME_PREFIX
@@ -27,6 +28,7 @@ class Model:
         self.num_cols = []
         self.ts_cols = []
         self.ts_col = self.config['time_col']
+        self.count_dict = {}
 
     @timeit
     def fit(self, Xs, y, time_ramain):
@@ -63,6 +65,24 @@ class Model:
         else:
             assert self.enc is not None
             X.loc[:, self.cat_cols] = self.enc.transform(X[self.cat_cols])
+
+        # Generate count features fro categorical columns
+        for c in self.cat_cols:
+            if train:
+                self.count_dict[c] = X[c].value_counts() #.to_frame(name='%s_count' % c.split('.')[-1]).reset_index().rename(columns={'index': c})
+
+            if (c in self.count_dict):
+                X.loc[:, '%s_count' % c] = X[c].map(lambda x: self.count_dict[c][x] if x in self.count_dict[c] else 0)
+                #X = X.merge(self.count_dict[c], how='left', on=c)
+
+        # Generate count features fro multi-categorical columns
+        for c in self.mcat_cols:
+            if train:
+                self.count_dict[c] = X[c].value_counts() #.to_frame(name='%s_count' % c.split('.')[-1]).reset_index().rename(columns={'index': c})
+
+            if (c in self.count_dict):
+                X.loc[:, '%s_count' % c] = X[c].map(lambda x: self.count_dict[c][x] if x in self.count_dict[c] else 0)
+                #X = X.merge(self.count_dict[c], how='left', on=c)
 
         # Use the count of categories for each observation
         for col in self.mcat_cols:
