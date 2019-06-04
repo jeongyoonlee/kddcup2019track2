@@ -22,3 +22,5 @@ LABEL = "label"
 HASH_MAX = 200
 
 AGG_FEAT_MAX = 4
+
+RANDOM_SEED = 2019

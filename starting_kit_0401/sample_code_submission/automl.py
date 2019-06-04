@@ -9,6 +9,7 @@ from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split, TimeSeriesSplit
 
 from util import Config, log, timeit
+from CONSTANT import RANDOM_SEED
 
 
 @timeit
@@ -36,8 +37,9 @@ def train_lightgbm(X: pd.DataFrame, y: pd.Series, config: Config):
         "metric": "auc",
         "bagging_freq": 1,
         "verbosity": -1,
-        "seed": 1,
-        "num_threads": 4
+        "seed": RANDOM_SEED,
+        "num_threads": 4,
+        
     }
 
     X_train, X_val, y_train, y_val = ts_data_split(X, y, 0.15)
@@ -106,12 +108,12 @@ def hyperopt_lightgbm(X: pd.DataFrame, y: pd.Series, params: Dict, config: Confi
 
 def ts_data_split(X: pd.DataFrame, y: pd.Series, test_size: float=0.2):
     #  -> (pd.DataFrame, pd.Series, pd.DataFrame, pd.Series):
-    return train_test_split(X, y, test_size=test_size, shuffle=False)
+    return train_test_split(X, y, test_size=test_size, shuffle=False, random_state=RANDOM_SEED)
 
 
 def data_split(X: pd.DataFrame, y: pd.Series, test_size: float=0.2):
     #  -> (pd.DataFrame, pd.Series, pd.DataFrame, pd.Series):
-    return train_test_split(X, y, test_size=test_size, random_state=1)
+    return train_test_split(X, y, test_size=test_size, random_state=RANDOM_SEED)
 
 
 def ts_data_sample(X: pd.DataFrame, y: pd.Series, nrows: int=5000):
