@@ -82,7 +82,7 @@ class Config:
 
         my_nunique.__name__ = 'nunique'
         ops = {
-            CONSTANT.NUMERICAL_TYPE: ["mean", "sum"],
+            CONSTANT.NUMERICAL_TYPE: ["mean", "sum", "min", "max", "std"],
             CONSTANT.CATEGORY_TYPE: ["count"],
             #  TIME_TYPE: ["max"],
             #  MULTI_CAT_TYPE: [my_unique]

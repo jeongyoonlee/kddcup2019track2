@@ -14,7 +14,7 @@ from sklearn.feature_extraction.text import CountVectorizer
 from automl import predict, train, validate
 from CONSTANT import MAIN_TABLE_NAME, CATEGORY_PREFIX, MULTI_CAT_PREFIX, NUMERICAL_PREFIX, TIME_PREFIX
 from merge import merge_table
-from preprocess import clean_df, clean_tables
+from preprocess import clean_df, clean_tables, feature_engineer as fe
 from util import Config, log, show_dataframe, timeit
 
 
@@ -34,9 +34,13 @@ class Model:
     def fit(self, Xs, y, time_ramain):
         self.tables = copy.deepcopy(Xs)
 
+        self.y = y
+
+        '''
         clean_tables(Xs)
         X = merge_table(Xs, self.config)
         clean_df(X)
+        
 
         self.cat_cols = sorted([c for c in X.columns if c.startswith(CATEGORY_PREFIX)])
         self.mcat_cols = sorted([c for c in X.columns if c.startswith(MULTI_CAT_PREFIX)])
@@ -52,6 +56,7 @@ class Model:
 
         X = self.feature_engineer(X, train=True)
         train(X, y, self.config)
+        '''
 
     @timeit
     def feature_engineer(self, X, y=None, train=True):
@@ -73,8 +78,11 @@ class Model:
             X.loc[:, self.cat_cols] = self.enc.transform(X[self.cat_cols])
 
         # Generate count features fro categorical columns
+        
         '''
-        for c in self.cat_cols:
+        for c in self.cat_cols[:2]:
+            if c.find('.') >= 0:
+                continue
             if train:
                 self.count_dict[c] = X[c].value_counts().to_frame(name='%s_count' % c.split('.')[-1]).reset_index().rename(columns={'index': c})
             if (c in self.count_dict):
@@ -101,6 +109,12 @@ class Model:
 
         Xs = self.tables
         main_table = Xs[MAIN_TABLE_NAME]
+
+        main_table['y_sorted'] = self.y
+        main_table.sort_values(self.ts_col, inplace=True)
+        y_trn = main_table.y_sorted.copy()
+        main_table.drop('y_sorted', axis=1, inplace=True)
+
         main_table = pd.concat([main_table, X_test], keys=['train', 'test'])
         main_table.index = main_table.index.map(lambda x: f"{x[0]}_{x[1]}")
         Xs[MAIN_TABLE_NAME] = main_table
@@ -109,11 +123,21 @@ class Model:
         X = merge_table(Xs, self.config)
         clean_df(X)
 
+        self.cat_cols = sorted([c for c in X.columns if c.startswith(CATEGORY_PREFIX)])
+        self.mcat_cols = sorted([c for c in X.columns if c.startswith(MULTI_CAT_PREFIX)])
+        self.num_cols = sorted([c for c in X.columns if c.startswith(NUMERICAL_PREFIX)])
+        self.ts_cols = sorted([c for c in X.columns if c.startswith(TIME_PREFIX)])
+
         X = self.feature_engineer(X, train=True)
+
+        X_trn = X[X.index.str.startswith("train")]
+        X_trn.index = X_trn.index.map(lambda x: int(x.split('_')[1]))
+
+        train(X_trn, y_trn, self.config)
         
-        X = X[X.index.str.startswith("test")]
-        X.index = X.index.map(lambda x: int(x.split('_')[1]))
-        X.sort_index(inplace=True)
-        result = predict(X, self.config)
+        X_tst = X[X.index.str.startswith("test")]
+        X_tst.index = X_tst.index.map(lambda x: int(x.split('_')[1]))
+        X_tst.sort_index(inplace=True)
+        result = predict(X_tst, self.config)
 
         return pd.Series(result)
