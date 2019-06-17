@@ -14,7 +14,7 @@ from sklearn.feature_extraction.text import CountVectorizer
 from automl import predict, train, validate
 from CONSTANT import MAIN_TABLE_NAME, CATEGORY_PREFIX, MULTI_CAT_PREFIX, NUMERICAL_PREFIX, TIME_PREFIX
 from merge import merge_table
-from preprocess import clean_df, clean_tables, feature_engineer as fe
+from preprocess import clean_df, clean_tables
 from util import Config, log, show_dataframe, timeit
 
 
@@ -36,40 +36,33 @@ class Model:
 
         self.y = y
 
-        '''
-        clean_tables(Xs)
-        X = merge_table(Xs, self.config)
-        clean_df(X)
-        
-
-        self.cat_cols = sorted([c for c in X.columns if c.startswith(CATEGORY_PREFIX)])
-        self.mcat_cols = sorted([c for c in X.columns if c.startswith(MULTI_CAT_PREFIX)])
-        self.num_cols = sorted([c for c in X.columns if c.startswith(NUMERICAL_PREFIX)])
-        self.ts_cols = sorted([c for c in X.columns if c.startswith(TIME_PREFIX)])
-
-        log('sorting the training data by the main timeseries column: {}'.format(self.ts_col))
-        X['y_sorted'] = y
-        X.sort_values(self.ts_col, inplace=True)
-
-        y = X.y_sorted.copy()
-        X.drop('y_sorted', axis=1, inplace=True)
-
-        X = self.feature_engineer(X, train=True)
-        train(X, y, self.config)
-        '''
-
     @timeit
     def feature_engineer(self, X, y=None, train=True):
         # Use the hour of the day as a feature
+        log('add hour, month, day, weekday features')
         for col in self.ts_cols:
-            X.loc[:, '%s_hour' % col] = pd.to_datetime(X[col]).dt.hour
-            X.loc[:, '%s_month' % col] = pd.to_datetime(X[col]).dt.month
-            X.loc[:, '%s_day' % col] = pd.to_datetime(X[col]).dt.day
-            X.loc[:, '%s_weekday' % col] = pd.to_datetime(X[col]).dt.weekday
-        
+            X.loc[:, col] = pd.to_datetime(X[col])
+            X.loc[:, '%s_hour' % col] = X[col].dt.hour
+            X.loc[:, '%s_month' % col] = X[col].dt.month
+            X.loc[:, '%s_day' % col] = X[col].dt.day
+            X.loc[:, '%s_weekday' % col] = X[col].dt.weekday
+
+            max_dt = X[col].max()
+            X.loc[:, '{}_diff_from_max'.format(col)] = (max_dt - X[col]).dt.total_seconds() // 60
+
         X.drop(self.ts_cols, axis=1, inplace=True)
 
+        s = (X.nunique() == 1)
+        cols_to_drop = s[s].index.tolist()
+        log('dropping constant columns: {}'.format(cols_to_drop))
+        X.drop(cols_to_drop, axis=1, inplace=True)
+
+        self.cat_cols = sorted([c for c in self.cat_cols if c not in cols_to_drop])
+        self.mcat_cols = sorted([c for c in self.mcat_cols if c not in cols_to_drop])
+        self.num_cols = sorted([c for c in self.num_cols if c not in cols_to_drop])
+
         # Label encode categorical features
+        log('label encoding categorical features')
         if train:
             self.enc = LabelEncoder(min_obs=X.shape[0] * .0001)
             X.loc[:, self.cat_cols] = self.enc.fit_transform(X[self.cat_cols])
@@ -77,8 +70,8 @@ class Model:
             assert self.enc is not None
             X.loc[:, self.cat_cols] = self.enc.transform(X[self.cat_cols])
 
-        # Generate count features fro categorical columns
-        
+        # Generate count features for categorical columns
+
         '''
         for c in self.cat_cols[:2]:
             if c.find('.') >= 0:
@@ -89,7 +82,7 @@ class Model:
                 X = X.reset_index().merge(self.count_dict[c], how='left', on=c).set_index('index')
         '''
 
-        # Generate count features fro multi-categorical columns
+        # Generate count features for multi-categorical columns
         '''
         for c in self.mcat_cols:
             if train:
@@ -98,10 +91,12 @@ class Model:
             if (c in self.count_dict):
                 X = X.reset_index().merge(self.count_dict[c], how='left', on=c).set_index('index')
         '''
+
         # Use the count of categories for each observation
+        log('count encoding multi-cat features')
         for col in self.mcat_cols:
             X.loc[:, col] = X[col].apply(lambda x: len(x.split(',')) if pd.notnull(x) else 0)
-        
+
         return X
 
     @timeit
@@ -134,7 +129,7 @@ class Model:
         X_trn.index = X_trn.index.map(lambda x: int(x.split('_')[1]))
 
         train(X_trn, y_trn, self.config)
-        
+
         X_tst = X[X.index.str.startswith("test")]
         X_tst.index = X_tst.index.map(lambda x: int(x.split('_')[1]))
         X_tst.sort_index(inplace=True)
