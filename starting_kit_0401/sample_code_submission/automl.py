@@ -9,7 +9,8 @@ from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split, TimeSeriesSplit
 
 from util import Config, log, timeit
-from CONSTANT import RANDOM_SEED
+from CONSTANT import RANDOM_SEED, SAMPLE_SIZE, HYPEROPT_TEST_SIZE
+from CONSTANT import BEST_ITER_THRESHOLD, N_RANDOM_COLS
 
 @timeit
 def train(X: pd.DataFrame, y: pd.Series, config: Config):
@@ -28,15 +29,14 @@ def validate(preds, y_path) -> np.float64:
     log("Score: {:0.4f}".format(score))
     return score
 
-def get_top_features_lightgbm(model, feature_names, random_cols):
+def get_top_features_lightgbm(model, feature_names, random_cols=[]):
     feature_importances = model.feature_importance(importance_type='split')
     imp = pd.DataFrame({'feature_importances': feature_importances, 'feature_names': feature_names})
     imp = imp.sort_values('feature_importances', ascending=False).drop_duplicates()
 
     th = max(imp.loc[imp.feature_names.isin(random_cols)].feature_importances.max(), 0)
     imp = imp[imp.feature_importances > th]
-
-    return imp.feature_names.tolist()
+    return imp['feature_names'].tolist()
 
 @timeit
 def train_lightgbm(X: pd.DataFrame, y: pd.Series, config: Config):
@@ -50,17 +50,20 @@ def train_lightgbm(X: pd.DataFrame, y: pd.Series, config: Config):
     }
 
     np.random.seed(RANDOM_SEED)
-    n_random_cols = 3
     random_cols = []
-    for i in range(1, n_random_cols + 1):
+    for i in range(1, N_RANDOM_COL + 1):
         random_col = '__random_{}__'.format(i)
         X[random_col] = np.random.rand(X.shape[0])
         random_cols.append(random_col)
 
-    X_sample, y_sample = ts_data_sample(X, y, 100000)
+    X_sample, y_sample = ts_data_sample(X, y, SAMPLE_SIZE)
     hyperparams, trials = hyperopt_lightgbm(X_sample, y_sample, params, config)
     n_best = trials.best_trial['result']['model'].best_iteration
     log('best iterations: %d' % n_best)
+
+    if n_best < BEST_ITER_THRESHOLD:
+        n_best = BEST_ITER_THRESHOLD
+        log('using best iterations: %d' % n_best)
 
     feature_names = X.columns.values.tolist()
     top_features = get_top_features_lightgbm(trials.best_trial['result']['model'],
@@ -73,11 +76,21 @@ def train_lightgbm(X: pd.DataFrame, y: pd.Series, config: Config):
     config['feature_names'] = feature_names
 
     log('training with 100% training data')
+    if n_best == BEST_ITER_THRESHOLD:
+        hyperparams['num_leaves'] = 20
+        hyperparams['max_depth'] = 4
+        hyperparams['learning_rate'] = 0.02
+        n_best = 200
+        log('using best iterations: %d' % n_best)
+
+    n_best = int(n_best*1.1)
+
     train_data = lgb.Dataset(X, label=y)
     config["model"] = lgb.train({**params, **hyperparams},
-                                train_data,
-                                n_best,
-                                verbose_eval=100)
+                                    train_data,
+                                    n_best,
+                                    verbose_eval=100)
+
 
     feature_importances = config["model"].feature_importance(importance_type='split')
     imp = pd.DataFrame({'feature_importances': feature_importances, 'feature_names': feature_names})
@@ -105,7 +118,7 @@ def predict_lightgbm(X: pd.DataFrame, config: Config, bagging: bool=False) -> Li
 
 @timeit
 def hyperopt_lightgbm(X: pd.DataFrame, y: pd.Series, params: Dict, config: Config):
-    X_train, X_val, y_train, y_val = ts_data_split(X, y, test_size=0.5)
+    X_train, X_val, y_train, y_val = ts_data_split(X, y, test_size=HYPEROPT_TEST_SIZE)
     train_data = lgb.Dataset(X_train, label=y_train)
     valid_data = lgb.Dataset(X_val, label=y_val)
 
@@ -114,12 +127,15 @@ def hyperopt_lightgbm(X: pd.DataFrame, y: pd.Series, params: Dict, config: Confi
         "num_leaves": hp.choice("num_leaves", [31, 63, 127]),
         "feature_fraction": hp.quniform("feature_fraction", .5, .8, 0.1),
         "bagging_fraction": hp.quniform("bagging_fraction", .5, .8, 0.1),
-        "min_child_samples": hp.choice('min_child_samples', [10, 25, 50, 100]),
+        "min_child_samples": hp.choice('min_child_samples', [10, 25, 100]),
     }
 
+    # "num_leaves": hp.choice("num_leaves", [20, 30, 40]),
+    #    "max_depth": hp.choice("max_depth", [-1, 4, 8]),
+
     def objective(hyperparams):
-        model = lgb.train({**params, **hyperparams}, train_data, 500,
-                          valid_data, early_stopping_rounds=10, verbose_eval=0)
+        model = lgb.train({**params, **hyperparams}, train_data, 300,
+                          valid_data, early_stopping_rounds=20, verbose_eval=0)
 
         score = model.best_score["valid_0"][params["metric"]]
 
@@ -128,7 +144,7 @@ def hyperopt_lightgbm(X: pd.DataFrame, y: pd.Series, params: Dict, config: Confi
 
     trials = Trials()
     best = hyperopt.fmin(fn=objective, space=space, trials=trials,
-                         algo=tpe.suggest, max_evals=50, verbose=1,
+                         algo=tpe.suggest, max_evals=100, verbose=1,
                          rstate=np.random.RandomState(RANDOM_SEED))
 
     hyperparams = space_eval(space, best)
@@ -148,8 +164,6 @@ def ts_data_split(X: pd.DataFrame, y: pd.Series, test_size: float=0.2):
     i_val = np.arange(X_val.shape[0])
     np.random.shuffle(i_val)
     return X_train.iloc[i_trn], X_val.iloc[i_val], y_train.iloc[i_trn], y_val.iloc[i_val]
-    #test_size = int(test_size*X.shape[0])
-    #return X.iloc[:-test_size,:], X.iloc[test_size:,:], y[:-test_size], y[test_size:]
 
 
 def data_split(X: pd.DataFrame, y: pd.Series, test_size: float=0.2):
@@ -159,12 +173,9 @@ def data_split(X: pd.DataFrame, y: pd.Series, test_size: float=0.2):
 
 def ts_data_sample(X: pd.DataFrame, y: pd.Series, nrows: int=5000):
     # -> (pd.DataFrame, pd.Series):
-
-    assert X.shape[0] == y.shape[0]
-
     if len(X) > nrows:
         X_sample = X.iloc[-nrows:].copy()
-        y_sample = y.iloc[-nrows:].copy()
+        y_sample = y[X_sample.index].copy()
     else:
         X_sample = X.copy()
         y_sample = y.copy()
