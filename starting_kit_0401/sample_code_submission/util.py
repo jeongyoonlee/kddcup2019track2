@@ -1,6 +1,11 @@
 import os
 import pickle
+
 import time
+import signal
+import math
+from contextlib import contextmanager
+
 from typing import Any
 
 import CONSTANT
@@ -8,15 +13,47 @@ import CONSTANT
 nesting_level = 0
 is_start = None
 
+class TimeoutException(Exception):
+    pass
+
 class Timer:
     def __init__(self):
         self.start = time.time()
         self.history = [self.start]
 
+        self.duration = 0
+        self.total = None
+        self.remain = None
+        self.exec = None
+
+    def set(self, time_budget):
+        self.total = time_budget
+        self.remain = time_budget
+        self.exec = 0
+
     def check(self, info):
         current = time.time()
         log(f"[{info}] spend {current - self.history[-1]:0.2f} sec")
         self.history.append(current)
+
+    @contextmanager
+    def time_limit(self, pname):
+        def signal_handler(signum, frame):
+            raise TimeoutException("Timed out!")
+        signal.signal(signal.SIGALRM, signal_handler)
+        signal.alarm(self.remain)
+        start_time = time.time()
+        try:
+            yield
+        finally:
+            exec_time = time.time() - start_time
+            signal.alarm(0)
+            self.exec += exec_time
+            self.duration += exec_time
+            remain_time = math.ceil(self.total - self.exec)
+            self.remain = remain_time
+
+            log(f'{pname} success, time spent so far {self.exec} sec')
 
 def timeit(method, start_log=None):
     def timed(*args, **kw):
@@ -61,6 +98,13 @@ def show_dataframe(df):
     else:
         print(f"dataframe is too wide to show the dtypes, over {len(df.dtypes)} columns")
 
+def check_imbalance_data(y):
+    if y.value_counts()[0] / len(y) < CONSTANT.IMBALANCE_RATE:
+        return 0
+    elif y.value_counts()[1] / len(y) < CONSTANT.IMBALANCE_RATE:
+        return 1
+    else:
+        return None
 
 class Config:
     def __init__(self, info):

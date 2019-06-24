@@ -4,49 +4,20 @@ os.system("pip3 install hyperopt")
 os.system("pip3 install lightgbm")
 os.system("pip3 install pandas==0.24.2")
 
-# check before install to save running time
-# try:
-#     from loguru import logger
-# except Exception as e:
-#     os.system("pip3 install loguru")
-#     from loguru import logger
-
-#try:
-#    import hyperopt
-#except Exception as e:
-#    os.system("pip3 install hyperopt")
-#    import hyperopt
-
-#try:
-#    import lightgbm as lgb
-#except Exception as e:
-#    os.system("pip3 install lightgbm")
-#    import lightgbm as lgb
-
-#try:
-#    os.system("pip3 install pandas==0.24.2")
-#    import pandas as pd
-#    #if pd.__version__ < "0.24.2":
-#    #    os.system("pip3 install pandas --upgrade") # should not use as taking too many time to upgrade
-#    #    # os.system("pip3 install pandas==0.24.2")
-#    #    import pandas as pd
-#except Exception as e:
-#    os.system("pip3 install pandas==0.24.2")
-#    import pandas as pd
-#-----------------------------------------
+import gc
 
 import copy
 import logging
 import numpy as np
 import pandas as pd
+from pandas.api.types import is_categorical_dtype
 from data import LabelEncoder
-from sklearn.feature_extraction.text import CountVectorizer
 
 from automl import predict, train, validate
 from CONSTANT import MAIN_TABLE_NAME, CATEGORY_PREFIX, MULTI_CAT_PREFIX, NUMERICAL_PREFIX, TIME_PREFIX
 from merge import merge_table
 from preprocess import clean_df, clean_tables
-from util import Config, log, show_dataframe, timeit
+from util import Config, log, show_dataframe, timeit, check_imbalance_data
 
 
 class Model:
@@ -74,7 +45,6 @@ class Model:
 
         for c in columns:
             cnt = df[c].value_counts().to_frame(name='%s_count' % c).reset_index().rename(columns={'index': c})
-            # cnt[c] = cnt[c].astype('category')
 
             if prev_cnt is None:
                 prev_cnt = {}
@@ -82,16 +52,10 @@ class Model:
             elif not str(c) in prev_cnt:
                 prev_cnt[str(c)] = cnt
             else:
-                # print("...Mean with previous count")
                 prev_cnt[str(c)] = prev_cnt[str(c)].append(cnt)
                 prev_cnt[str(c)] = prev_cnt[str(c)].groupby(c)['%s_count' % c].mean().to_frame(name='%s_count' % c).reset_index().rename(columns={'index': c})
 
             df = df.merge(prev_cnt[str(c)], how='left', on=c)
-            # checked with D, not improve
-            # if mcat == True:
-            #     df['%s_count_items' % c] = df[c].apply(lambda x: len(x.split(',')) if pd.notnull(x) else 0)
-
-            # df = df.drop(c, axis=1)
 
         return df, prev_cnt
 
@@ -117,8 +81,6 @@ class Model:
             elif not magic in prev_uniq_cnt[str(c)]:
                 prev_uniq_cnt[str(c)] = {magic: cnt}
             else:
-                # print("...Mean with previous count")
-                # print("col", c, magic, prev_uniq_cnt[str(c)])
                 prev_uniq_cnt[str(c)][magic] = prev_uniq_cnt[str(c)][magic].append(cnt)
                 prev_uniq_cnt[str(c)][magic] = prev_uniq_cnt[str(c)][magic].groupby(c)['%s_%s_unique' % (c,magic)].mean().to_frame(name='%s_%s_unique' % (c,magic)).reset_index().rename(columns={'index': c})
             df = df.merge(prev_uniq_cnt[str(c)][magic], how='left', on=c)
@@ -151,70 +113,65 @@ class Model:
 
     @timeit
     def feature_engineer(self, X, y=None):
+        log('memory usage of X: {:.2f}MB'.format(X.memory_usage().sum() // 1e6))
 
-        self.ts_cols = sorted([c for c in X.columns if c.startswith(TIME_PREFIX)])
-
-        X, self.prev_cat_cnt = self.count_categorical(X, self.prev_cat_cnt, mcat = False)
-        X, self.prev_multi_cat_cnt = self.count_categorical(X, self.prev_multi_cat_cnt, mcat = True)
-        X, self.prev_uniq_cat_cnt = self.uniq_categorical(X, self.prev_uniq_cat_cnt, mcat = False)
-        #X = self.aggregate_cat_cols_on_time_features(X, mcat = False)
+        X, self.prev_cat_cnt = self.count_categorical(X, self.prev_cat_cnt, mcat=False)
+        X, self.prev_multi_cat_cnt = self.count_categorical(X, self.prev_multi_cat_cnt, mcat=True)
 
         # Use the hour of the day as a feature
-        for col in self.ts_cols:
-            X[col] = pd.to_datetime(X[col])
-            X.loc[:, '%s_minute' % col] = X[col].dt.minute
-            X.loc[:, '%s_hour' % col] = X[col].dt.hour
-            X.loc[:, '%s_year' % col] = X[col].dt.year
-            X.loc[:, '%s_quarter' % col] = X[col].dt.quarter
-            X.loc[:, '%s_month' % col] = X[col].dt.month
-            X.loc[:, '%s_day' % col] = X[col].dt.day
-            X.loc[:, '%s_weekday' % col] = X[col].dt.weekday
+        self.ts_cols = sorted([c for c in X.columns if c.startswith(TIME_PREFIX)])
 
+        for col in self.ts_cols:
+            log('memory usage of X: {}'.format(X.memory_usage().sum()))
+            log('adding datetime features for {}'.format(col))
+            X[col] = pd.to_datetime(X[col])
+            X.loc[:, '{}_minute'.format(col)] = X[col].dt.minute
+            X.loc[:, '{}_hour'.format(col)] = X[col].dt.hour
+            X.loc[:, '{}_month'.format(col)] = X[col].dt.month
+            X.loc[:, '{}_day'.format(col)] = X[col].dt.day
+            X.loc[:, '{}_weekday'.format(col)] = X[col].dt.weekday
+
+            log('adding the diff-from-max feature for {}'.format(col))
             max_ts = X[col].max()
             X.loc[:, '{}_diff_from_max'.format(col)] = (max_ts - X[col]).dt.total_seconds() // 60
 
-            #if col != self.ts_col:
-            #    X.loc[:, '{}_diff_from_ts'.format(col)] = X[[self.ts_col, col]].apply(lambda x: (x[0]-x[1]).total_seconds() // 60, axis=1)
+        log('memory usage of X: {:.2f}MB'.format(X.memory_usage().sum() // 1e6))
+        cols_to_drop = self.ts_cols
+        for col in [x for x in X.columns if x not in self.ts_cols]:
+            s = X[col]
+            if s.dtype == np.object:
+                s = s.astype('category')
+                if len(s.cat.categories) == 1:
+                    cols_to_drop.append(col)
 
-        s = (X.nunique() == 1)
-        cols_to_drop = s[s].index.tolist()
-        X.drop(cols_to_drop + self.ts_cols, axis=1, inplace=True)
+            elif is_categorical_dtype(s):
+                if len(s.cat.categories) == 1:
+                    cols_to_drop.append(col)
+
+            elif s.min() == s.max():
+                cols_to_drop.append(col)
+
+        log('dropping constant and timeseries features')
+        log('{}'.format(cols_to_drop))
+        X.drop(cols_to_drop, axis=1, inplace=True)
+        log('memory usage of X: {:.2f}MB'.format(X.memory_usage().sum() // 1e6))
 
         self.cat_cols = sorted([c for c in X.columns if c.startswith(CATEGORY_PREFIX)])
         self.mcat_cols = sorted([c for c in X.columns if c.startswith(MULTI_CAT_PREFIX)])
         self.num_cols = sorted([c for c in X.columns if c.startswith(NUMERICAL_PREFIX)])
 
         # Label encode categorical features
+        log('label encoding categorical features: {}'.format(self.cat_cols))
         self.enc = LabelEncoder(min_obs=X.shape[0] * .0001)
         X.loc[:, self.cat_cols] = self.enc.fit_transform(X[self.cat_cols])
 
-        # Generate count features fro categorical columns
-
-        '''
-        for c in self.cat_cols[:2]:
-            if c.find('.') >= 0:
-                continue
-            if train:
-                self.count_dict[c] = X[c].value_counts().to_frame(name='%s_count' % c.split('.')[-1]).reset_index().rename(columns={'index': c})
-            if (c in self.count_dict):
-                X = X.reset_index().merge(self.count_dict[c], how='left', on=c).set_index('index')
-        '''
-
-        # Generate count features fro multi-categorical columns
-        '''
-        for c in self.mcat_cols:
-            if train:
-                self.count_dict[c] = X[c].value_counts().to_frame(name='%s_count' % c.split('.')[-1]).reset_index().rename(columns={'index': c})
-
-            if (c in self.count_dict):
-                X = X.reset_index().merge(self.count_dict[c], how='left', on=c).set_index('index')
-        '''
-
         # Use the count of categories for each observation
+        log('adding count features for multi-cat features: {}'.format(self.mcat_cols))
         for col in self.mcat_cols:
             X.loc[:, col] = X[col].apply(lambda x: len(x.split(',')) if pd.notnull(x) else 0)
 
         log('Features list: {}'.format(X.columns.tolist()))
+        log('memory usage of X: {:.2f}MB'.format(X.memory_usage().sum() // 1e6))
 
         return X
 
@@ -225,7 +182,6 @@ class Model:
 
     @timeit
     def predict(self, X_test, time_remain):
-
         Xs = self.tables
         main_table = Xs[MAIN_TABLE_NAME]
 
@@ -233,13 +189,16 @@ class Model:
         main_table.sort_values(self.ts_col, inplace=True)
 
         X_test['y_sorted'] = -1
-        main_table = pd.concat([main_table, X_test], ignore_index = True).reset_index()
+        main_table = pd.concat([main_table, X_test], ignore_index=True).reset_index(drop=True)
 
         Xs[MAIN_TABLE_NAME] = main_table
 
         clean_tables(Xs)
         X = merge_table(Xs, self.config)
         clean_df(X)
+
+        del Xs, main_table, X_test
+        gc.collect()
 
         X = self.feature_engineer(X)
 

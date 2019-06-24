@@ -4,13 +4,16 @@ import hyperopt
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
+import gc
 from hyperopt import STATUS_OK, Trials, hp, space_eval, tpe
 from sklearn.metrics import roc_auc_score
-from sklearn.model_selection import train_test_split, TimeSeriesSplit
+from sklearn.model_selection import train_test_split, StratifiedKFold
 
-from util import Config, log, timeit
-from CONSTANT import RANDOM_SEED, SAMPLE_SIZE, HYPEROPT_TEST_SIZE
-from CONSTANT import BEST_ITER_THRESHOLD, N_RANDOM_COLS
+from util import Config, Timer, log, timeit, check_imbalance_data
+from CONSTANT import RANDOM_SEED, SAMPLE_SIZE, HYPEROPT_TEST_SIZE, BEST_ITER_THRESHOLD
+from CONSTANT import KFOLD, IMBALANCE_RATE, N_RANDOM_COL
+
+from scipy.stats import rankdata
 
 @timeit
 def train(X: pd.DataFrame, y: pd.Series, config: Config):
@@ -30,12 +33,14 @@ def validate(preds, y_path) -> np.float64:
     return score
 
 def get_top_features_lightgbm(model, feature_names, random_cols=[]):
-    feature_importances = model.feature_importance(importance_type='split')
+    feature_importances = model.feature_importance(importance_type='gain')
     imp = pd.DataFrame({'feature_importances': feature_importances, 'feature_names': feature_names})
     imp = imp.sort_values('feature_importances', ascending=False).drop_duplicates()
 
-    th = max(imp.loc[imp.feature_names.isin(random_cols)].feature_importances.max(), 0)
-    imp = imp[imp.feature_importances > th]
+    th = imp.loc[imp.feature_names.isin(random_cols)].feature_importances.mean()
+    log('feature importance:\n{}'.format(imp))
+    imp = imp[(imp.feature_importances > th) &
+              ~(imp.feature_importances.isin(random_cols))]
     return imp['feature_names'].tolist()
 
 @timeit
@@ -56,47 +61,98 @@ def train_lightgbm(X: pd.DataFrame, y: pd.Series, config: Config):
         X[random_col] = np.random.rand(X.shape[0])
         random_cols.append(random_col)
 
+    imbalance = check_imbalance_data(y)
+
     X_sample, y_sample = ts_data_sample(X, y, SAMPLE_SIZE)
-    hyperparams, trials = hyperopt_lightgbm(X_sample, y_sample, params, config)
+    #X_sample, y_sample = stratified_kfold_split(X, y, SAMPLE_SIZE)
+
+    shuffle = imbalance is not None
+    hyperparams, trials = hyperopt_lightgbm(X_sample, y_sample, params, config, shuffle)
     n_best = trials.best_trial['result']['model'].best_iteration
     log('best iterations: %d' % n_best)
 
-    if n_best < BEST_ITER_THRESHOLD:
-        n_best = BEST_ITER_THRESHOLD
-        log('using best iterations: %d' % n_best)
-
     feature_names = X.columns.values.tolist()
-    top_features = get_top_features_lightgbm(trials.best_trial['result']['model'],
-                                             feature_names,
-                                             random_cols)
+    top_features = get_top_features_lightgbm(trials.best_trial['result']['model'], feature_names)
 
     log('selecting top %d out of %d features' % (len(top_features), len(feature_names)))
     X = X[top_features]
     feature_names = top_features
     config['feature_names'] = feature_names
 
-    log('training with 100% training data')
-    if n_best == BEST_ITER_THRESHOLD:
-        hyperparams['num_leaves'] = 20
-        hyperparams['max_depth'] = 4
-        hyperparams['learning_rate'] = 0.02
-        n_best = 200
-        log('using best iterations: %d' % n_best)
+    n_best += 10
 
-    n_best = int(n_best*1.1)
+    config["models"] = []
+    if KFOLD == 1:
+        # training using full data
+        log('training with 100% training data')
+        train_data = lgb.Dataset(X, label=y)
+        model = lgb.train({**params, **hyperparams},
+                                        train_data,
+                                        n_best,
+                                        verbose_eval=100)
+        config["models"].append(model)
+    else:
+        log(f"Training models in limit time {config['time_budget'] // 10}s...")
+        timer = Timer()
+        timer.set(config['time_budget'] // 10)
+        skf = StratifiedKFold(n_splits=KFOLD, shuffle=True, random_state=RANDOM_SEED)
+        if imbalance is None:
+            log(f"Not imbalance data, training using StratifiedKFold {y.value_counts()}")
+            folds = skf.split(X, y)
+            for n_fold, (train_idx, valid_idx) in enumerate(folds):
+                try:
+                    with timer.time_limit(f'Training Model k={n_fold}'):
+                        log(f"Training fold {n_fold}...")
+                        X_n = X.iloc[valid_idx]
+                        y_n = y.iloc[valid_idx]
+                        train_data = lgb.Dataset(X_n, label=y_n)
+                        model = lgb.train({**params, **hyperparams},
+                                                        train_data,
+                                                        n_best,
+                                                        verbose_eval=100)
 
-    train_data = lgb.Dataset(X, label=y)
-    config["model"] = lgb.train({**params, **hyperparams},
-                                    train_data,
-                                    n_best,
-                                    verbose_eval=100)
+                        config["models"].append(model)
+                except Exception as e:
+                    log(f'Error: training error at k={n_fold}. Error message: {str(e)}')
+                    break
+            log(f'Done, exec_time={timer.exec}')
+        else:
+            log(f"Imbalance data, training using StratifiedKFold {y.value_counts()}")
+            X['y_sorted'] = y
+            df_minority = X[X['y_sorted']==imbalance]
+            df_majority = X[X['y_sorted']!=imbalance]
+            folds = skf.split(df_majority, df_majority['y_sorted'])
+            for n_fold, (train_idx, valid_idx) in enumerate(folds):
+                try:
+                    with timer.time_limit(f'Training Model k={n_fold}'):
+                        log(f"Training fold {n_fold}...")
+                        X_majority = df_majority.iloc[valid_idx]
+                        y_majority = df_majority['y_sorted'].iloc[valid_idx]
+                        df_concat = pd.concat([df_minority, X_majority])
 
+                        y_n = df_concat['y_sorted'].copy()
+                        X_n = df_concat.drop('y_sorted', axis=1)
+                        train_data = lgb.Dataset(X_n, label=y_n)
+                        model = lgb.train({**params, **hyperparams},
+                                                        train_data,
+                                                        n_best,
+                                                        verbose_eval=100)
 
-    feature_importances = config["model"].feature_importance(importance_type='split')
+                        config["models"].append(model)
+                except Exception as e:
+                    log(f'Error: training error at k={n_fold}. Error message: {str(e)}')
+                    break
+            log(f'Done, exec_time={timer.exec}')
+
+        del skf
+        gc.collect()
+
+    feature_importances = config["models"][0].feature_importance(importance_type='gain')
     imp = pd.DataFrame({'feature_importances': feature_importances, 'feature_names': feature_names})
     imp = imp.sort_values('feature_importances', ascending=False).drop_duplicates()
 
-    print("[+] All feature importances", list(imp.values))
+    log(f"[+] All feature importances {list(imp.values)}")
+
 
     config['trials'] = trials
 
@@ -104,7 +160,18 @@ def train_lightgbm(X: pd.DataFrame, y: pd.Series, config: Config):
 @timeit
 def predict_lightgbm(X: pd.DataFrame, config: Config, bagging: bool=False) -> List:
     X = X[config['feature_names']]
-    best_pred = config["model"].predict(X)
+    # best_pred = config["model"].predict(X)
+    with_best_iteration = True
+    total_rows = X.shape[0]
+    best_pred = 0.0
+    for model in config["models"]:
+        if with_best_iteration == True:
+          best_pred += rankdata(model.predict(X, num_iteration=model.best_iteration)) / total_rows
+        else:
+          best_pred += rankdata(model.predict(X)) / total_rows
+
+    best_pred /= len(config["models"])
+
     if bagging:
         trial_pred = 1
         sum_score = 0
@@ -113,25 +180,27 @@ def predict_lightgbm(X: pd.DataFrame, config: Config, bagging: bool=False) -> Li
             sum_score += (-score)
         trial_pred = trial_pred**(1.0/sum_score)
         best_pred = (best_pred**0.7)*(trial_pred**0.3)
+
     return best_pred
 
-
 @timeit
-def hyperopt_lightgbm(X: pd.DataFrame, y: pd.Series, params: Dict, config: Config):
+def hyperopt_lightgbm(X: pd.DataFrame, y: pd.Series, params: Dict, config: Config, shuffle = True):
+    log(f'Search best params with train data {X.shape}')
     X_train, X_val, y_train, y_val = ts_data_split(X, y, test_size=HYPEROPT_TEST_SIZE)
+    #X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=HYPEROPT_TEST_SIZE,
+    #                                                  shuffle=shuffle, random_state=RANDOM_SEED)
+
     train_data = lgb.Dataset(X_train, label=y_train)
     valid_data = lgb.Dataset(X_val, label=y_val)
 
     space = {
-        "learning_rate": hp.loguniform("learning_rate", np.log(0.02), np.log(0.1)),
-        "num_leaves": hp.choice("num_leaves", [31, 63, 127]),
+        "learning_rate": hp.loguniform("learning_rate", np.log(0.01), np.log(0.1)),
+        "num_leaves": hp.choice("num_leaves", [15, 31, 63, 127]),
+        "max_depth": hp.choice("max_depth", [-1, 4, 6, 8]),
         "feature_fraction": hp.quniform("feature_fraction", .5, .8, 0.1),
         "bagging_fraction": hp.quniform("bagging_fraction", .5, .8, 0.1),
         "min_child_samples": hp.choice('min_child_samples', [10, 25, 100]),
     }
-
-    # "num_leaves": hp.choice("num_leaves", [20, 30, 40]),
-    #    "max_depth": hp.choice("max_depth", [-1, 4, 8]),
 
     def objective(hyperparams):
         model = lgb.train({**params, **hyperparams}, train_data, 300,
@@ -154,16 +223,15 @@ def hyperopt_lightgbm(X: pd.DataFrame, y: pd.Series, params: Dict, config: Confi
 
 def ts_data_split(X: pd.DataFrame, y: pd.Series, test_size: float=0.2):
     #  -> (pd.DataFrame, pd.Series, pd.DataFrame, pd.Series):
-    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=test_size, shuffle=False, random_state=RANDOM_SEED)
-
+    X_trn, X_val, y_trn, y_val = train_test_split(X, y, test_size=test_size, shuffle=False,
+                                                  random_state=RANDOM_SEED)
     np.random.seed(RANDOM_SEED)
 
-    i_trn = np.arange(X_train.shape[0])
+    i_trn = np.arange(X_trn.shape[0])
     np.random.shuffle(i_trn)
-
     i_val = np.arange(X_val.shape[0])
     np.random.shuffle(i_val)
-    return X_train.iloc[i_trn], X_val.iloc[i_val], y_train.iloc[i_trn], y_val.iloc[i_val]
+    return X_trn.iloc[i_trn], X_val.iloc[i_val], y_trn.iloc[i_trn], y_val.iloc[i_val]
 
 
 def data_split(X: pd.DataFrame, y: pd.Series, test_size: float=0.2):
@@ -191,5 +259,41 @@ def data_sample(X: pd.DataFrame, y: pd.Series, nrows: int=5000):
     else:
         X_sample = X
         y_sample = y
+
+    return X_sample, y_sample
+
+def stratified_kfold_split(X: pd.DataFrame, y: pd.Series, nrows: int=5000):
+    # split data with imbalance check
+    imbalance = check_imbalance_data(y)
+
+    if imbalance is not None:
+        log(f'imbalance data less than {IMBALANCE_RATE} minority is {imbalance}')
+        X['y_sorted'] = y
+        df_minority = X[X['y_sorted']==imbalance]
+        df_majority = X[X['y_sorted']!=imbalance]
+
+        n_split = len(df_majority) // nrows
+        if n_split < 2:
+            n_split = 2
+
+        log(f'imbalance data {df_majority.shape} minority is {df_minority.shape} with n_split {n_split}')
+
+        skf = StratifiedKFold(n_splits=n_split, shuffle=True, random_state=RANDOM_SEED) # Model.N_FOLDS
+        folds = skf.split(df_majority, df_majority['y_sorted'])
+        for n_fold, (train_idx, valid_idx) in enumerate(folds):
+            if n_fold > 1:
+                break
+            X_majority = df_majority.iloc[valid_idx]
+            y_majority = df_majority['y_sorted'].iloc[valid_idx]
+
+        df_concat = pd.concat([df_minority, X_majority])
+        y_sample = df_concat['y_sorted'].copy()
+        X_sample = df_concat.drop('y_sorted', axis=1)
+
+        del skf
+        gc.collect()
+        X.drop('y_sorted', axis=1, inplace=True)
+    else:
+        X_sample, y_sample = ts_data_sample(X, y, nrows)
 
     return X_sample, y_sample
