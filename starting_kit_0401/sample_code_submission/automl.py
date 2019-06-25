@@ -37,10 +37,9 @@ def get_top_features_lightgbm(model, feature_names, random_cols=[]):
     imp = pd.DataFrame({'feature_importances': feature_importances, 'feature_names': feature_names})
     imp = imp.sort_values('feature_importances', ascending=False).drop_duplicates()
 
-    th = imp.loc[imp.feature_names.isin(random_cols)].feature_importances.mean()
-    log('feature importance:\n{}'.format(imp))
-    imp = imp[(imp.feature_importances > th) &
-              ~(imp.feature_importances.isin(random_cols))]
+    th = imp.loc[imp.feature_names.isin(random_cols), 'feature_importances'].mean()
+    log('feature importance (th={:.2f}):\n{}'.format(th, imp))
+    imp = imp[(imp.feature_importances > th) & ~(imp.feature_names.isin(random_cols))]
     return imp['feature_names'].tolist()
 
 @timeit
@@ -72,7 +71,8 @@ def train_lightgbm(X: pd.DataFrame, y: pd.Series, config: Config):
     log('best iterations: %d' % n_best)
 
     feature_names = X.columns.values.tolist()
-    top_features = get_top_features_lightgbm(trials.best_trial['result']['model'], feature_names)
+    top_features = get_top_features_lightgbm(trials.best_trial['result']['model'],
+                                             feature_names, random_cols)
 
     log('selecting top %d out of %d features' % (len(top_features), len(feature_names)))
     X = X[top_features]

@@ -122,7 +122,7 @@ class Model:
         self.ts_cols = sorted([c for c in X.columns if c.startswith(TIME_PREFIX)])
 
         for col in self.ts_cols:
-            log('memory usage of X: {}'.format(X.memory_usage().sum()))
+            log('memory usage of X: {:.2f}MB'.format(X.memory_usage().sum() // 1e6))
             log('adding datetime features for {}'.format(col))
             X[col] = pd.to_datetime(X[col])
             X.loc[:, '{}_minute'.format(col)] = X[col].dt.minute
