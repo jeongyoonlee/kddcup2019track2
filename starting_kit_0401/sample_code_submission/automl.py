@@ -21,7 +21,42 @@ pd.set_option('mode.chained_assignment', None)
 
 @timeit
 def train(X: pd.DataFrame, y: pd.Series, config: Config):
-    train_lightgbm(X, y, config)
+    lgb_params = {
+        "objective": "binary",
+        "boosting": "gbdt",
+        "metric": "auc",
+        "bagging_freq": 1,
+        "verbosity": -1,
+        "seed": RANDOM_SEED,
+        "num_threads": 4,
+    }
+
+    rf_params = {
+        "objective": "binary",
+        "boosting": "rf",
+        "metric": "auc",
+        "bagging_freq": 1,
+        "verbosity": -1,
+        "seed": RANDOM_SEED,
+        "num_threads": 4,
+    }
+
+    X, y = downsample(X, y, ratio=IMBALANCE_RATE)
+
+    X_sample, y_sample = ts_data_sample(X, y, SAMPLE_SIZE)
+    top_features = feature_selection(X_sample, y_sample, lgb_params, config)
+
+    X = X[top_features]
+    X_sample = X_sample[top_features]
+    gc.collect()
+
+    config["models"] = []
+
+    lgb_params, lgb_n_best = tune_hyperparam_lgb(X_sample, y_sample, lgb_params, config)
+    train_lightgbm(X, y, lgb_params, lgb_n_best, config)
+
+    rf_params, rf_n_best = tune_hyperparam_rf(X_sample, y_sample, rf_params, config)
+    train_lightgbm(X, y, rf_params, rf_n_best, config)
 
 
 @timeit
@@ -47,19 +82,27 @@ def get_top_features_lightgbm(model, feature_names, random_cols=[]):
     return imp['feature_names'].tolist()
 
 @timeit
-def train_lightgbm(X: pd.DataFrame, y: pd.Series, config: Config):
+def tune_hyperparam_lgb(X, y, params, config, n_eval=100):
+    log('hyper-parameter tuning for LGB wiht 100 trials')
+    hyperparams, trials = hyperopt_lightgbm(X, y, params, config, n_eval=n_eval)
+    params.update(hyperparams)
+    n_best = trials.best_trial['result']['model'].best_iteration
+    log('best parameters: {}'.format(params))
+    log('best iterations: %d' % n_best)
+    return params, n_best
 
-    X, y = downsample(X, y, ratio=IMBALANCE_RATE)
+@timeit
+def tune_hyperparam_rf(X, y, params, config, n_eval=100):
+    log('hyper-parameter tuning for RF wiht 100 trials')
+    hyperparams, trials = hyperopt_lightgbm(X, y, params, config, n_eval=n_eval)
+    params.update(hyperparams)
+    n_best = trials.best_trial['result']['model'].best_iteration
+    log('best parameters: {}'.format(params))
+    log('best iterations: %d' % n_best)
+    return params, n_best
 
-    params = {
-        "objective": "binary",
-        "metric": "auc",
-        "bagging_freq": 1,
-        "verbosity": -1,
-        "seed": RANDOM_SEED,
-        "num_threads": 4,
-    }
-
+@timeit
+def feature_selection(X, y, params, config, n_eval=10):
     np.random.seed(RANDOM_SEED)
     random_cols = []
     for i in range(1, N_RANDOM_COL + 1):
@@ -67,29 +110,19 @@ def train_lightgbm(X: pd.DataFrame, y: pd.Series, config: Config):
         X[random_col] = np.random.rand(X.shape[0])
         random_cols.append(random_col)
 
-    X_sample, y_sample = ts_data_sample(X, y, SAMPLE_SIZE)
-
-    log('feature selection with 10 trials')
-    hyperparams, trials = hyperopt_lightgbm(X_sample, y_sample, params, config, n_eval=10)
+    log('feature selection with {} trials'.format(n_eval))
+    hyperparams, trials = hyperopt_lightgbm(X, y, params, config, n_eval=n_eval)
     feature_names = X.columns.values.tolist()
     top_features = get_top_features_lightgbm(trials.best_trial['result']['model'],
                                              feature_names, random_cols)
 
     log('selecting top %d out of %d features' % (len(top_features), len(feature_names)))
-    X = X[top_features]
-    X_sample = X_sample[top_features]
-    gc.collect()
-    feature_names = top_features
-    config['feature_names'] = feature_names
+    config['feature_names'] = top_features
+    return top_features
 
-    log('hyper-parameter tuning wiht 100 trials')
-    hyperparams, trials = hyperopt_lightgbm(X_sample, y_sample, params, config, n_eval=100)
-    params.update(hyperparams)
-    n_best = trials.best_trial['result']['model'].best_iteration
-    log('best parameters: {}'.format(params))
-    log('best iterations: %d' % n_best)
+@timeit
+def train_lightgbm(X: pd.DataFrame, y: pd.Series, params, n_best, config: Config):
 
-    config["models"] = []
     if KFOLD == 1:
         # training using full data
         log('training with 100% training data')
@@ -122,11 +155,10 @@ def train_lightgbm(X: pd.DataFrame, y: pd.Series, config: Config):
         gc.collect()
 
     feature_importances = config["models"][0].feature_importance(importance_type='gain')
-    imp = pd.DataFrame({'feature_importances': feature_importances, 'feature_names': feature_names})
+    imp = pd.DataFrame({'feature_importances': feature_importances, 'feature_names': config['feature_names']})
     imp = imp.sort_values('feature_importances', ascending=False).drop_duplicates()
 
     log("[+] All feature importances:\n {}".format(imp))
-    config['trials'] = trials
 
 @timeit
 def predict_lightgbm(X: pd.DataFrame, config: Config, bagging: bool=False) -> List:
@@ -154,6 +186,7 @@ def hyperopt_lightgbm(X: pd.DataFrame, y: pd.Series, params: Dict, config: Confi
         "feature_fraction": hp.quniform("feature_fraction", .5, .8, 0.1),
         "bagging_fraction": hp.quniform("bagging_fraction", .5, .8, 0.1),
         "min_child_samples": hp.choice('min_child_samples', [10, 25, 100]),
+        "lambda_l1": hp.choice('lambda_l1', [.1, 1, 10]),
     }
 
     def objective(hyperparams):
