@@ -1,4 +1,6 @@
 import datetime
+import numpy as np
+from pandas.api.types import is_categorical_dtype
 
 import CONSTANT
 from util import log, timeit
@@ -13,7 +15,28 @@ def clean_tables(tables):
 
 @timeit
 def clean_df(df):
+    log('memory usage: {:.2f}MB'.format(df.memory_usage().sum() // 1e6))
     fillna(df)
+
+    cols_to_drop = []
+    for col in df.columns:
+        s = df[col]
+        if s.dtype == np.object:
+            s = s.astype('category')
+            if len(s.cat.categories) == 1:
+                cols_to_drop.append(col)
+
+        elif is_categorical_dtype(s):
+            if len(s.cat.categories) == 1:
+                cols_to_drop.append(col)
+
+        elif s.min() == s.max():
+            cols_to_drop.append(col)
+
+    log('dropping constant features')
+    log('{}'.format(cols_to_drop))
+    df.drop(cols_to_drop, axis=1, inplace=True)
+    log('memory usage: {:.2f}MB'.format(df.memory_usage().sum() // 1e6))
 
 
 @timeit

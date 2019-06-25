@@ -7,10 +7,10 @@ os.system("pip3 install pandas==0.24.2")
 import gc
 
 import copy
+from itertools import combinations
 import logging
 import numpy as np
 import pandas as pd
-from pandas.api.types import is_categorical_dtype
 from data import LabelEncoder
 
 from automl import predict, train, validate
@@ -124,36 +124,36 @@ class Model:
         for col in self.ts_cols:
             log('memory usage of X: {:.2f}MB'.format(X.memory_usage().sum() // 1e6))
             log('adding datetime features for {}'.format(col))
-            X[col] = pd.to_datetime(X[col])
-            X.loc[:, '{}_minute'.format(col)] = X[col].dt.minute
-            X.loc[:, '{}_hour'.format(col)] = X[col].dt.hour
-            X.loc[:, '{}_month'.format(col)] = X[col].dt.month
-            X.loc[:, '{}_day'.format(col)] = X[col].dt.day
-            X.loc[:, '{}_weekday'.format(col)] = X[col].dt.weekday
+            s = X[col] = pd.to_datetime(X[col])
+            s_n = s.dt.minute
+            if s_n.min() != s_n.max():
+                X.loc[:, '{}_minute'.format(col)] = s_n
+            s_n = s.dt.hour
+            if s_n.min() != s_n.max():
+                X.loc[:, '{}_hour'.format(col)] = s_n
+            s_n = s.dt.month
+            if s_n.min() != s_n.max():
+                X.loc[:, '{}_month'.format(col)] = s_n
+            s_n = s.dt.weekday
+            if s_n.min() != s_n.max():
+                X.loc[:, '{}_weekday'.format(col)] = s_n
 
             log('adding the diff-from-max feature for {}'.format(col))
-            max_ts = X[col].max()
-            X.loc[:, '{}_diff_from_max'.format(col)] = (max_ts - X[col]).dt.total_seconds() // 60
+            max_ts = s.max()
+            s_n = (max_ts - s).dt.total_seconds() // 60
+            if s_n.min() != s_n.max():
+                X.loc[:, '{}_diff_from_max'.format(col)] = s_n
+
+        for ts_col1, ts_col2 in combinations(self.ts_cols, 2):
+            log('adding the diff between {} and {}'.format(ts_col1, ts_col2))
+            s = (X[ts_col1] - X[ts_col2]).dt.total_seconds() // 60
+            if s.min() != s.max():
+                X.loc[:, '{}_minus_{}'.format(ts_col1, ts_col2)] = s
 
         log('memory usage of X: {:.2f}MB'.format(X.memory_usage().sum() // 1e6))
-        cols_to_drop = self.ts_cols
-        for col in [x for x in X.columns if x not in self.ts_cols]:
-            s = X[col]
-            if s.dtype == np.object:
-                s = s.astype('category')
-                if len(s.cat.categories) == 1:
-                    cols_to_drop.append(col)
 
-            elif is_categorical_dtype(s):
-                if len(s.cat.categories) == 1:
-                    cols_to_drop.append(col)
-
-            elif s.min() == s.max():
-                cols_to_drop.append(col)
-
-        log('dropping constant and timeseries features')
-        log('{}'.format(cols_to_drop))
-        X.drop(cols_to_drop, axis=1, inplace=True)
+        log('dropping timeseries features')
+        X.drop(self.ts_cols, axis=1, inplace=True)
         log('memory usage of X: {:.2f}MB'.format(X.memory_usage().sum() // 1e6))
 
         self.cat_cols = sorted([c for c in X.columns if c.startswith(CATEGORY_PREFIX)])
