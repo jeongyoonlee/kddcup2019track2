@@ -50,19 +50,18 @@ def train(X: pd.DataFrame, y: pd.Series, config: Config):
     X_sample = X_sample[top_features]
     gc.collect()
 
-    config["models"] = []
-
     lgb_params, lgb_n_best = tune_hyperparam_lgb(X_sample, y_sample, lgb_params, config)
-    train_lightgbm(X, y, lgb_params, lgb_n_best, config)
+    train_lightgbm(X, y, lgb_params, lgb_n_best, config, 'lgb')
 
     rf_params, rf_n_best = tune_hyperparam_rf(X_sample, y_sample, rf_params, config)
-    train_lightgbm(X, y, rf_params, rf_n_best, config)
+    train_lightgbm(X, y, rf_params, rf_n_best, config, 'rf')
 
 
 @timeit
 def predict(X: pd.DataFrame, config: Config) -> List:
-    preds = predict_lightgbm(X, config)
-    return preds
+    p_lgb = predict_lightgbm(X, config, 'lgb')
+    p_rf = predict_lightgbm(X, config, 'rf')
+    return p_lgb * .7 + p_rf * .3
 
 
 @timeit
@@ -121,14 +120,15 @@ def feature_selection(X, y, params, config, n_eval=10):
     return top_features
 
 @timeit
-def train_lightgbm(X: pd.DataFrame, y: pd.Series, params, n_best, config: Config):
+def train_lightgbm(X, y, params, n_best, config, model_name):
 
+    config[model_name] = []
     if KFOLD == 1:
         # training using full data
         log('training with 100% training data')
         train_data = lgb.Dataset(X, label=y)
         model = lgb.train(params, train_data, n_best + 10, verbose_eval=100)
-        config["models"].append(model)
+        config[model_name].append(model)
     else:
         log(f"Training models in limit time {config['time_budget'] // 10}s...")
         timer = Timer()
@@ -145,7 +145,7 @@ def train_lightgbm(X: pd.DataFrame, y: pd.Series, params, n_best, config: Config
                                       early_stopping_rounds=N_STOP,
                                       verbose_eval=100)
 
-                    config["models"].append(model)
+                    config[model_name].append(model)
             except Exception as e:
                 log(f'Error: training error at k={i_fold}. Error message: {str(e)}')
                 break
@@ -154,18 +154,18 @@ def train_lightgbm(X: pd.DataFrame, y: pd.Series, params, n_best, config: Config
         del skf
         gc.collect()
 
-    feature_importances = config["models"][0].feature_importance(importance_type='gain')
+    feature_importances = config[model_name][0].feature_importance(importance_type='gain')
     imp = pd.DataFrame({'feature_importances': feature_importances, 'feature_names': config['feature_names']})
     imp = imp.sort_values('feature_importances', ascending=False).drop_duplicates()
 
     log("[+] All feature importances:\n {}".format(imp))
 
 @timeit
-def predict_lightgbm(X: pd.DataFrame, config: Config, bagging: bool=False) -> List:
+def predict_lightgbm(X, config, model_name):
     X = X[config['feature_names']]
     best_pred = 1.0
-    n_model = len(config["models"])
-    for model in config["models"]:
+    n_model = len(config[model_name])
+    for model in config[model_name]:
         best_pred *= model.predict(X, num_iteration=model.best_iteration)
 
     return best_pred ** (1 / n_model)
