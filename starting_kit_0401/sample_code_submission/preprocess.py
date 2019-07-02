@@ -1,9 +1,10 @@
 import datetime
-import numpy as np
-from pandas.api.types import is_categorical_dtype
 
 import CONSTANT
 from util import log, timeit
+
+import numpy as np
+from pandas.api.types import is_categorical_dtype
 
 
 @timeit

@@ -75,9 +75,12 @@ def get_top_features_lightgbm(model, feature_names, random_cols=[]):
     imp = pd.DataFrame({'feature_importances': feature_importances, 'feature_names': feature_names})
     imp = imp.sort_values('feature_importances', ascending=False).drop_duplicates()
 
-    th = imp.loc[imp.feature_names.isin(random_cols), 'feature_importances'].mean()
-    log('feature importance (th={:.2f}):\n{}'.format(th, imp))
-    imp = imp[(imp.feature_importances > th) & ~(imp.feature_names.isin(random_cols))]
+    if len(random_cols)==0:
+        imp = imp[imp['feature_importances']!=0]
+    else:
+        th = imp.loc[imp.feature_names.isin(random_cols), 'feature_importances'].mean()
+        log('feature importance (th={:.2f}):\n{}'.format(th, imp))
+        imp = imp[(imp.feature_importances > th) & ~(imp.feature_names.isin(random_cols))]
     return imp['feature_names'].tolist()
 
 @timeit
@@ -104,10 +107,12 @@ def tune_hyperparam_rf(X, y, params, config, n_eval=100):
 def feature_selection(X, y, params, config, n_eval=10):
     np.random.seed(RANDOM_SEED)
     random_cols = []
+    ''' # trying for all features 
     for i in range(1, N_RANDOM_COL + 1):
         random_col = '__random_{}__'.format(i)
         X[random_col] = np.random.rand(X.shape[0])
         random_cols.append(random_col)
+    '''
 
     log('feature selection with {} trials'.format(n_eval))
     hyperparams, trials = hyperopt_lightgbm(X, y, params, config, n_eval=n_eval)
@@ -130,7 +135,7 @@ def train_lightgbm(X, y, params, n_best, config, model_name):
         model = lgb.train(params, train_data, n_best + 10, verbose_eval=100)
         config[model_name].append(model)
     else:
-        log(f"Training models in limit time {config['time_budget'] // 10}s...")
+        log(f"Training models in limit time {config['time_budget'] // 5}s...")
         timer = Timer()
         timer.set(config['time_budget'] // 5)
         skf = StratifiedKFold(n_splits=KFOLD, shuffle=True, random_state=RANDOM_SEED)

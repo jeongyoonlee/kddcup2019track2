@@ -1,6 +1,8 @@
 import os
-import pickle
 
+# import psutil
+
+import pickle
 import time
 import signal
 import math
@@ -97,6 +99,26 @@ def show_dataframe(df):
               f"{df.dtypes}\n")
     else:
         print(f"dataframe is too wide to show the dtypes, over {len(df.dtypes)} columns")
+
+def df_memory_usage(X):
+    return X.memory_usage().sum() # byte
+
+''' #require psutil
+def get_process_memory():
+    try:
+        process = psutil.Process(os.getpid())
+        return process.memory_info().rss / 1024 / 1024 # /1024 # MB
+    except:
+        return 0
+'''
+
+def get_process_memory():
+    ''' Memory usage in kB '''
+
+    with open('/proc/self/status') as f:
+        memusage = f.read().split('VmRSS:')[1].split('\n')[0][:-3]
+
+    return int(memusage.strip()) / 1024 #MB
 
 def check_imbalance_data(y):
     if y.value_counts()[0] / len(y) < CONSTANT.IMBALANCE_RATE:
