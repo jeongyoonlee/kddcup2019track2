@@ -8,7 +8,7 @@
 
 ## Submission Account at Codalab
 
-* https://competitions.codalab.org/competitions/21948
+* https://codalab.lri.fr/competitions/559
 * username: AvengersEnsmbl
 * password: KDDCup2019Winners
 
