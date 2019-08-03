@@ -2,26 +2,23 @@
 
 ## Competition
 
-* Introduction and rules: [4Paradigm](https://www.4paradigm.com/competition/kddcup2019)
+* Introduction and winners' solutions: [4Paradigm](https://www.4paradigm.com/competition/kddcup2019)
 * Submission and leaderboard: [Codalab](https://competitions.codalab.org/competitions/21948)
-* Team AvengersEnsmbl slack channel: [Invite link](https://join.slack.com/t/avengersensmbl/shared_invite/enQtNjI1NDE2NjIyMzEwLTNlOTYyY2QzMzdjOTg5NTg3NDcxZmQ0ZTgxODljOGZhYjY0OWFjYzFmNTExNzMwYzBkZmZmNzNhYmM3NDI5NzU)
 
 ## Submission Account at Codalab
 
 * https://codalab.lri.fr/competitions/559
-* username: AvengersEnsmbl
-* password: KDDCup2019Winners
 
 ## Team **AvengersEnsmbl**
 
-* Bang Ly Tieu
-* Tam T. Nguyen
-* Tina Nikou
-* Yang Cao
-* Mike Yung
-* Yifeng Wu
-* Jing Pan
-* Jeong-Yoon Lee
+* Bang Ly Tieu, `lytieubang` at `gmail.com`
+* Tam T. Nguyen, `nthanhtam` at `gmail.com`
+* Tina Nikou, `tnikou` at `uber.com`
+* Yang Cao, `yangcao` at `uber.com`
+* Mike Yung, `mike.yung` at `uber.com`
+* Yifeng Wu, `yifeng.wu` at `uber.com`
+* Jing Pan, `jing.pan` at `uber.com`
+* Jeong-Yoon Lee, `jeongyoon.lee1` at `gmail.com`
 
 # REFERENCES
 
